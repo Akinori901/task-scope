@@ -341,4 +341,4 @@ task-scope/
 
 ## ライセンス
 
-Private
+Public
