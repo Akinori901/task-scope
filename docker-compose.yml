@@ -1,0 +1,77 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend/Dockerfile
+    container_name: ts-backend
+    ports:
+      - "${BACKEND_PORT:-19000}:8000"
+    volumes:
+      - ./backend:/app
+      - ./docs/policies:/app/docs/policies
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.development
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend/Dockerfile
+    container_name: ts-frontend
+    ports:
+      - "${FRONTEND_PORT:-3100}:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:${BACKEND_PORT:-19000}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  db:
+    build:
+      context: ./docker/mysql
+      dockerfile: Dockerfile
+    container_name: ts-db
+    ports:
+      - "${DB_PORT:-13307}:3306"
+    env_file:
+      - .env
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: ts-phpmyadmin
+    ports:
+      - "${PHPMYADMIN_PORT:-19080}:80"
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  frontend_node_modules:

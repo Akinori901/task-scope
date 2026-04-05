@@ -1,0 +1,48 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+backend/.venv/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Django
+backend/staticfiles/
+backend/db.sqlite3
+
+# MySQL
+docker/mysql/data/
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+htmlcov/
+
+# Docs (案件固有ドキュメント)
+docs/
+
+# Claude — 機密情報を含むファイル / ローカル専用
+.claude/project.config.md
+.claude/rules/aws-infrastructure.md
+.claude/settings.local.json
+.claude/memory/
+.claude/projects/
+.claude/skills/
+
