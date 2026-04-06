@@ -77,7 +77,7 @@ class JiraClient:
             "fields": [
                 "summary", "description", "issuetype", "status", "priority",
                 "assignee", "reporter", "created", "updated", "duedate",
-                "comment", "labels", "timeestimate", "timespent",
+                "comment", "labels", "timeestimate", "timespent", "parent",
             ],
         }
         if next_page_token:

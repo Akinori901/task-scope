@@ -31,10 +31,12 @@ export default function Layout() {
   const location = useLocation();
 
   const currentTab = location.pathname === "/settings"
-    ? 2
-    : location.pathname.startsWith("/tickets")
-      ? 1
-      : 0;
+    ? 3
+    : location.pathname.startsWith("/gantt")
+      ? 2
+      : location.pathname.startsWith("/tickets")
+        ? 1
+        : 0;
 
   const handleViewChange = (
     _: React.MouseEvent<HTMLElement>,
@@ -53,14 +55,15 @@ export default function Layout() {
 
           <Tabs
             value={currentTab}
-            onChange={(_, v) => navigate(v === 2 ? "/settings" : v === 1 ? "/tickets" : "/")}
+            onChange={(_, v) => navigate(v === 3 ? "/settings" : v === 2 ? "/gantt" : v === 1 ? "/tickets" : "/")}
             textColor="inherit"
             sx={{ flexGrow: 1, "& .MuiTab-root": { minHeight: 64 } }}
             TabIndicatorProps={{ sx: { backgroundColor: "white" } }}
           >
-            <Tab label="ダッシュボード" onClick={() => navigate("/")} />
-            <Tab label="チケット一覧" onClick={() => navigate("/tickets")} />
-            <Tab label="設定" onClick={() => navigate("/settings")} />
+            <Tab label="ダッシュボード" />
+            <Tab label="チケット一覧" />
+            <Tab label="ガントチャート" />
+            <Tab label="設定" />
           </Tabs>
 
           {/* スペース（現場）切替 */}

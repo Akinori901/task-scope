@@ -27,6 +27,8 @@ import TicketFilters from "../components/TicketFilters";
 import TicketTable from "../components/TicketTable";
 import { useTickets } from "../hooks/useTickets";
 import { parseSpaceId, useViewStore } from "../stores/viewStore";
+import { useCategoryNames } from "../hooks/useCategoryNames";
+import { useMilestoneNames } from "../hooks/useMilestoneNames";
 import { useProjects } from "../hooks/useProjects";
 import { useStatusNames } from "../hooks/useStatusNames";
 import { useUsers } from "../hooks/useUsers";
@@ -47,11 +49,14 @@ export default function TicketListPage() {
     view: viewMode,
     ...spaceFilter,
     exclude_completed: excludeCompleted || undefined,
+    is_root: true as const,
   };
   const { data, isLoading } = useTickets(mergedFilters);
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const { data: users, isLoading: usersLoading } = useUsers();
   const { data: statusNames } = useStatusNames();
+  const { data: categoryNames } = useCategoryNames();
+  const { data: milestoneNames } = useMilestoneNames();
   const { data: unpostedSpecs } = useQuery({
     queryKey: ["unposted-specs"],
     queryFn: () => fetchUnpostedSpecs().then((r: { data: unknown }) => r.data),
@@ -78,6 +83,8 @@ export default function TicketListPage() {
           projects={projects ?? []}
           users={users ?? []}
           statusNames={statusNames ?? []}
+          categoryNames={categoryNames ?? []}
+          milestoneNames={milestoneNames ?? []}
         />
         <FormControlLabel
           control={
@@ -112,7 +119,7 @@ export default function TicketListPage() {
         >
           CSV
         </Button>
-        {unpostedSpecs && (unpostedSpecs as UnpostedSpec[]).length > 0 && (
+        {Array.isArray(unpostedSpecs) && unpostedSpecs.length > 0 && (
           <Badge badgeContent={(unpostedSpecs as UnpostedSpec[]).length} color="warning">
             <Button
               variant="outlined"

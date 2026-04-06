@@ -1,10 +1,15 @@
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import {
+  Box,
   Chip,
+  CircularProgress,
+  IconButton,
   Paper,
   Table,
   TableBody,
@@ -17,9 +22,11 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { TicketQueryParams } from "../api/client";
 import type { PaginatedResponse, Ticket } from "../api/types";
+import { useTickets } from "../hooks/useTickets";
 import PriorityChip from "./PriorityChip";
 import StatusChip from "./StatusChip";
 
@@ -85,13 +92,144 @@ function EvalBadge({ ticket }: { ticket: Ticket }) {
   }
 }
 
+function TicketRow({
+  ticket,
+  indent = 0,
+  expanded,
+  onToggle,
+}: {
+  ticket: Ticket;
+  indent?: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const navigate = useNavigate();
+  const hasChildren = ticket.child_count > 0;
+
+  return (
+    <TableRow
+      hover
+      sx={{ cursor: "pointer" }}
+      onClick={() => navigate(`/tickets/${ticket.id}`)}
+    >
+      <TableCell>
+        <Box sx={{ display: "flex", alignItems: "center", pl: indent * 3 }}>
+          {hasChildren && indent === 0 ? (
+            <IconButton
+              size="small"
+              sx={{ p: 0, mr: 0.5 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+            >
+              {expanded ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+            </IconButton>
+          ) : indent > 0 ? (
+            <Box sx={{ width: 22 }} />
+          ) : null}
+          <Box>
+            <Typography variant="body2" fontWeight={600}>
+              {ticket.issue_key}
+            </Typography>
+            {ticket.parent_ticket_key && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontSize: 10 }}>
+                ↑ {ticket.parent_ticket_key}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      </TableCell>
+      <TableCell>
+        {ticket.summary}
+        {hasChildren && (
+          <Chip label={`子${ticket.child_count}`} size="small" variant="outlined" sx={{ ml: 1, height: 18, fontSize: 10 }} />
+        )}
+      </TableCell>
+      <TableCell>{ticket.project_key}</TableCell>
+      <TableCell>
+        <StatusChip status={ticket.status_name} />
+        {ticket.status_changed_at &&
+          Date.now() - new Date(ticket.status_changed_at).getTime() < 86400000 && (
+          <Tooltip title={`${ticket.previous_status_name ?? "?"} → ${ticket.status_name}`}>
+            <Chip label="更新" size="small" color="info" variant="outlined" sx={{ ml: 0.5, height: 20, fontSize: 11 }} />
+          </Tooltip>
+        )}
+      </TableCell>
+      <TableCell><PriorityChip priority={ticket.priority_name} /></TableCell>
+      <TableCell>{ticket.assignee_name ?? "未割当"}</TableCell>
+      <TableCell>{ticket.due_date ?? "—"}</TableCell>
+      <TableCell align="center">
+        <EvalBadge ticket={ticket} />
+      </TableCell>
+      <TableCell align="center">
+        <Tooltip title={ticket.has_spec ? "方針書あり — クリックで方針書を表示" : "方針書なし"}>
+          <DescriptionIcon
+            fontSize="small"
+            sx={{
+              color: ticket.has_spec ? "info.main" : "text.disabled",
+              cursor: ticket.has_spec ? "pointer" : "default",
+            }}
+            onClick={(e) => {
+              if (ticket.has_spec) {
+                e.stopPropagation();
+                navigate(`/tickets/${ticket.id}?tag=spec`);
+              }
+            }}
+          />
+        </Tooltip>
+      </TableCell>
+      <TableCell align="center">
+        {ticket.needs_re_evaluation && (
+          <Tooltip title="新コメントあり — 再評価推奨">
+            <RefreshIcon fontSize="small" sx={{ color: "error.main" }} />
+          </Tooltip>
+        )}
+      </TableCell>
+      <TableCell>
+        {ticket.is_overdue && (
+          <Chip label="遅延" color="error" size="small" sx={{ mr: 0.5 }} />
+        )}
+        {ticket.is_stagnant && (
+          <Chip label={`停滞${ticket.stagnant_days}日`} color="warning" size="small" />
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function ChildRows({ parentId, filters }: { parentId: number; filters: TicketQueryParams }) {
+  const { data, isLoading } = useTickets({ ...filters, parent_id: parentId, is_root: undefined, page: 1 });
+
+  if (isLoading) {
+    return (
+      <TableRow>
+        <TableCell colSpan={columns.length} sx={{ pl: 6 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <CircularProgress size={14} />
+            <Typography variant="caption" color="text.secondary">読み込み中...</Typography>
+          </Box>
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  return (
+    <>
+      {(data?.results ?? []).map((child) => (
+        <TicketRow key={child.id} ticket={child} indent={1} expanded={false} onToggle={() => {}} />
+      ))}
+    </>
+  );
+}
+
 export default function TicketTable({
   data,
   filters,
   onChange,
   isLoading,
 }: Props) {
-  const navigate = useNavigate();
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const currentOrdering = filters.ordering ?? "";
   const orderDir = currentOrdering.startsWith("-") ? "desc" : "asc";
   const orderBy = currentOrdering.replace(/^-/, "");
@@ -103,6 +241,14 @@ export default function TicketTable({
 
   const handlePageChange = (_: unknown, newPage: number) => {
     onChange({ ...filters, page: newPage + 1 });
+  };
+
+  const toggle = (id: number) => {
+    setExpanded((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
   };
 
   const page = (filters.page ?? 1) - 1;
@@ -146,76 +292,16 @@ export default function TicketTable({
               </TableRow>
             ) : (
               data?.results.map((ticket) => (
-                <TableRow
-                  key={ticket.id}
-                  hover
-                  sx={{ cursor: "pointer" }}
-                  onClick={() => navigate(`/tickets/${ticket.id}`)}
-                >
-                  <TableCell>
-                    <Typography variant="body2" fontWeight={600}>
-                      {ticket.issue_key}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>{ticket.summary}</TableCell>
-                  <TableCell>{ticket.project_key}</TableCell>
-                  <TableCell>
-                    <StatusChip status={ticket.status_name} />
-                    {ticket.status_changed_at &&
-                      Date.now() - new Date(ticket.status_changed_at).getTime() < 86400000 && (
-                      <Tooltip title={`${ticket.previous_status_name ?? "?"} → ${ticket.status_name}`}>
-                        <Chip label="更新" size="small" color="info" variant="outlined" sx={{ ml: 0.5, height: 20, fontSize: 11 }} />
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell><PriorityChip priority={ticket.priority_name} /></TableCell>
-                  <TableCell>{ticket.assignee_name ?? "未割当"}</TableCell>
-                  <TableCell>{ticket.due_date ?? "—"}</TableCell>
-                  <TableCell align="center">
-                    <EvalBadge ticket={ticket} />
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title={ticket.has_spec ? "方針書あり — クリックで方針書を表示" : "方針書なし"}>
-                      <DescriptionIcon
-                        fontSize="small"
-                        sx={{
-                          color: ticket.has_spec ? "info.main" : "text.disabled",
-                          cursor: ticket.has_spec ? "pointer" : "default",
-                        }}
-                        onClick={(e) => {
-                          if (ticket.has_spec) {
-                            e.stopPropagation();
-                            navigate(`/tickets/${ticket.id}?tag=spec`);
-                          }
-                        }}
-                      />
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell align="center">
-                    {ticket.needs_re_evaluation && (
-                      <Tooltip title="新コメントあり — 再評価推奨">
-                        <RefreshIcon fontSize="small" sx={{ color: "error.main" }} />
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {ticket.is_overdue && (
-                      <Chip
-                        label="遅延"
-                        color="error"
-                        size="small"
-                        sx={{ mr: 0.5 }}
-                      />
-                    )}
-                    {ticket.is_stagnant && (
-                      <Chip
-                        label={`停滞${ticket.stagnant_days}日`}
-                        color="warning"
-                        size="small"
-                      />
-                    )}
-                  </TableCell>
-                </TableRow>
+                <React.Fragment key={ticket.id}>
+                  <TicketRow
+                    ticket={ticket}
+                    expanded={expanded.has(ticket.id)}
+                    onToggle={() => toggle(ticket.id)}
+                  />
+                  {expanded.has(ticket.id) && ticket.child_count > 0 && (
+                    <ChildRows parentId={ticket.id} filters={filters} />
+                  )}
+                </React.Fragment>
               ))
             )}
           </TableBody>
