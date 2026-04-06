@@ -7,7 +7,7 @@ import logging
 import threading
 import uuid
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, status
@@ -20,7 +20,7 @@ _bg_tasks: dict[str, dict] = {}
 _bg_tasks_lock = threading.Lock()
 
 from apps.core.filters import TicketFilter
-from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, PinnedTicket, Project, Ticket
+from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, PinnedTicket, Project, Ticket
 
 from apps.core.serializers import (
     BacklogSpaceSerializer,
@@ -30,6 +30,7 @@ from apps.core.serializers import (
     DashboardStatsSerializer,
     ExcludedStatusSerializer,
     JiraSpaceSerializer,
+    MilestoneSerializer,
     ProjectSerializer,
     TicketDetailSerializer,
     TicketEvaluationSerializer,
@@ -54,6 +55,8 @@ class DashboardStatsView(APIView):
         project_id = request.query_params.get("project")
         status_name = request.query_params.get("status_name")
         assignee_id = request.query_params.get("assignee")
+        category = request.query_params.get("category")
+        milestone = request.query_params.get("milestone")
         search = request.query_params.get("search")
 
         # ベースクエリ
@@ -70,6 +73,10 @@ class DashboardStatsView(APIView):
             tickets = tickets.filter(status_name=status_name)
         if assignee_id:
             tickets = tickets.filter(assignee_id=assignee_id)
+        if category:
+            tickets = tickets.filter(categories__contains=[category])
+        if milestone:
+            tickets = tickets.filter(milestone_names__contains=[milestone])
         if search:
             tickets = tickets.filter(
                 Q(summary__icontains=search) | Q(issue_key__icontains=search)
@@ -189,7 +196,21 @@ class TicketListView(generics.ListAPIView[Ticket]):
     ordering = ["-backlog_updated"]
 
     def get_queryset(self) -> QuerySet[Ticket]:
-        return Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee")
+        return (
+            Ticket.objects.select_related(
+                "project", "project__space", "project__jira_space",
+                "assignee", "evaluation", "parent_ticket",
+            )
+            .annotate(
+                _child_count=Count("child_tickets"),
+                _has_spec=Exists(
+                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["spec"])
+                ),
+                _real_comment_count=Count(
+                    "comments", filter=Q(comments__content__gt="")
+                ),
+            )
+        )
 
 
 class TicketExportView(generics.ListAPIView[Ticket]):
@@ -296,9 +317,13 @@ class TicketDetailView(generics.RetrieveAPIView[Ticket]):
     serializer_class = TicketDetailSerializer
 
     def get_queryset(self) -> QuerySet[Ticket]:
-        return Ticket.objects.select_related(
-            "project", "assignee", "evaluation"
-        ).prefetch_related("comments__created_user")
+        return (
+            Ticket.objects.select_related(
+                "project", "project__space", "project__jira_space",
+                "assignee", "evaluation", "parent_ticket",
+            )
+            .annotate(_child_count=Count("child_tickets"))
+        )
 
 
 class TicketEvaluateView(APIView):
@@ -776,6 +801,167 @@ class StatusNameListView(APIView):
         return Response(names)
 
 
+class CategoryNameListView(APIView):
+    """チケットに存在するカテゴリ名一覧 API"""
+
+    def get(self, request: Request) -> Response:
+        qs = Ticket.objects.all()
+        space_id = request.query_params.get("space")
+        jira_space_id = request.query_params.get("jira_space")
+        project_id = request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        elif space_id:
+            qs = qs.filter(project__space_id=space_id)
+        elif jira_space_id:
+            qs = qs.filter(project__jira_space_id=jira_space_id)
+        # JSON 配列からユニークな値を抽出
+        names: set[str] = set()
+        for cats in qs.exclude(categories=[]).values_list("categories", flat=True).iterator():
+            if isinstance(cats, list):
+                names.update(cats)
+        return Response(sorted(names))
+
+
+class MilestoneNameListView(APIView):
+    """チケットに存在するマイルストーン名一覧 API"""
+
+    def get(self, request: Request) -> Response:
+        qs = Ticket.objects.all()
+        space_id = request.query_params.get("space")
+        jira_space_id = request.query_params.get("jira_space")
+        project_id = request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        elif space_id:
+            qs = qs.filter(project__space_id=space_id)
+        elif jira_space_id:
+            qs = qs.filter(project__jira_space_id=jira_space_id)
+        names: set[str] = set()
+        for ms in qs.exclude(milestone_names=[]).values_list("milestone_names", flat=True).iterator():
+            if isinstance(ms, list):
+                names.update(ms)
+        return Response(sorted(names))
+
+
+class GanttMilestoneListView(APIView):
+    """ガントチャート用マイルストーン集計 API"""
+
+    def get(self, request: Request) -> Response:
+        from apps.core.services.sync_service import CLOSED_STATUS_NAMES, NOT_STARTED_STATUS_NAMES
+
+        # --- マイルストーン取得（日付ありのみ）---
+        ms_qs = Milestone.objects.select_related("project").filter(
+            start_date__isnull=False, end_date__isnull=False,
+        )
+        space_id = request.query_params.get("space")
+        jira_space_id = request.query_params.get("jira_space")
+        project_id = request.query_params.get("project")
+        if project_id:
+            ms_qs = ms_qs.filter(project_id=project_id)
+        elif space_id:
+            ms_qs = ms_qs.filter(project__space_id=space_id)
+        elif jira_space_id:
+            ms_qs = ms_qs.filter(project__jira_space_id=jira_space_id)
+
+        milestones = list(ms_qs.order_by("sort_order", "start_date"))
+        if not milestones:
+            return Response([])
+
+        ms_names = [ms.name for ms in milestones]
+
+        # --- チケット取得（フィルタ適用）---
+        tickets_qs = Ticket.objects.all()
+        # TicketFilter のパラメータを手動適用
+        if project_id:
+            tickets_qs = tickets_qs.filter(project_id=project_id)
+        elif space_id:
+            tickets_qs = tickets_qs.filter(project__space_id=space_id)
+        elif jira_space_id:
+            tickets_qs = tickets_qs.filter(project__jira_space_id=jira_space_id)
+
+        status_name = request.query_params.get("status_name")
+        if status_name:
+            tickets_qs = tickets_qs.filter(status_name=status_name)
+        assignee_id = request.query_params.get("assignee")
+        if assignee_id:
+            tickets_qs = tickets_qs.filter(assignee_id=assignee_id)
+        category = request.query_params.get("category")
+        if category:
+            tickets_qs = tickets_qs.filter(categories__contains=[category])
+        search = request.query_params.get("search")
+        if search:
+            tickets_qs = tickets_qs.filter(
+                Q(summary__icontains=search) | Q(issue_key__icontains=search)
+            )
+        view_mode = request.query_params.get("view")
+        if view_mode == "my":
+            myself_ids = list(
+                BacklogUser.objects.filter(is_myself=True).values_list("id", flat=True)
+            )
+            if myself_ids:
+                mentioned_ticket_ids = Comment.objects.filter(
+                    mentioned_users__id__in=myself_ids
+                ).values_list("ticket_id", flat=True)
+                tickets_qs = tickets_qs.filter(
+                    Q(assignee__in=myself_ids) | Q(id__in=mentioned_ticket_ids)
+                ).distinct()
+
+        exclude_completed = request.query_params.get("exclude_completed")
+        project_ids = list(ms_qs.values_list("project_id", flat=True).distinct())
+        excluded_names = ExcludedStatus.get_excluded_names(project_ids)
+        completed_names = CLOSED_STATUS_NAMES | excluded_names
+        if exclude_completed and exclude_completed.lower() in ("true", "1"):
+            tickets_qs = tickets_qs.exclude(status_name__in=completed_names)
+
+        # 対象マイルストーン名のいずれかを含むチケットのみ取得
+        # JSONField の OR 条件を構築
+        ms_q = Q()
+        for name in ms_names:
+            ms_q |= Q(milestone_names__contains=[name])
+        # --- マイルストーン別に集計 ---
+        stats_by_name: dict[str, dict[str, int]] = {}
+        for name in ms_names:
+            stats_by_name[name] = {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0}
+
+        for ticket in (
+            tickets_qs.filter(ms_q)
+            .only("id", "status_name", "is_stagnant", "milestone_names")
+            .iterator()
+        ):
+            for name in ticket.milestone_names or []:
+                if name not in stats_by_name:
+                    continue
+                s = stats_by_name[name]
+                s["total"] += 1
+                if ticket.status_name in completed_names:
+                    s["completed"] += 1
+                elif ticket.status_name in NOT_STARTED_STATUS_NAMES:
+                    s["not_started"] += 1
+                elif ticket.is_stagnant:
+                    s["stagnant"] += 1
+                else:
+                    s["in_progress"] += 1
+
+        # --- レスポンス構築 ---
+        result = []
+        for ms in milestones:
+            s = stats_by_name.get(ms.name, {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0})
+            rate = round(s["completed"] / s["total"] * 100, 1) if s["total"] > 0 else 0.0
+            result.append({
+                "id": ms.id,
+                "project_key": ms.project.project_key,
+                "project_name": ms.project.name,
+                "name": ms.name,
+                "start_date": ms.start_date.isoformat(),
+                "end_date": ms.end_date.isoformat(),
+                "sort_order": ms.sort_order,
+                "stats": {**s, "completion_rate": rate},
+            })
+
+        return Response(result)
+
+
 class SyncTriggerView(APIView):
     """同期トリガー API（全スペース or 指定スペース）"""
 
@@ -822,6 +1008,33 @@ class JiraSyncTriggerView(APIView):
                 {"status": "error", "message": "Jira sync failed"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class MilestoneListCreateView(generics.ListCreateAPIView[Milestone]):
+    """マイルストーン一覧・作成 API"""
+
+    serializer_class = MilestoneSerializer
+    pagination_class = None
+
+    def get_queryset(self) -> QuerySet[Milestone]:
+        qs = Milestone.objects.select_related("project").all()
+        project_id = self.request.query_params.get("project")
+        space_id = self.request.query_params.get("space")
+        jira_space_id = self.request.query_params.get("jira_space")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        elif space_id:
+            qs = qs.filter(project__space_id=space_id)
+        elif jira_space_id:
+            qs = qs.filter(project__jira_space_id=jira_space_id)
+        return qs
+
+
+class MilestoneDetailView(generics.RetrieveUpdateDestroyAPIView[Milestone]):
+    """マイルストーン詳細・更新・削除 API"""
+
+    serializer_class = MilestoneSerializer
+    queryset = Milestone.objects.all()
 
 
 class CodeRepositoryListCreateView(generics.ListCreateAPIView[CodeRepository]):

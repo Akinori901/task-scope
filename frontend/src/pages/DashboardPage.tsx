@@ -8,7 +8,9 @@ import StatsCards from "../components/StatsCards";
 import StatusChart from "../components/StatusChart";
 import TicketFilters from "../components/TicketFilters";
 import WorkloadChart from "../components/WorkloadChart";
+import { useCategoryNames } from "../hooks/useCategoryNames";
 import { useDashboardStats } from "../hooks/useDashboardStats";
+import { useMilestoneNames } from "../hooks/useMilestoneNames";
 import { useProjects } from "../hooks/useProjects";
 import { useStatusNames } from "../hooks/useStatusNames";
 import { useTickets } from "../hooks/useTickets";
@@ -25,6 +27,8 @@ export default function DashboardPage() {
     ...(filters.project ? { project: filters.project } : {}),
     ...(filters.status_name ? { status_name: filters.status_name } : {}),
     ...(filters.assignee ? { assignee: filters.assignee } : {}),
+    ...(filters.category ? { category: filters.category } : {}),
+    ...(filters.milestone ? { milestone: filters.milestone } : {}),
     ...(filters.search ? { search: filters.search } : {}),
   };
 
@@ -32,6 +36,8 @@ export default function DashboardPage() {
   const { data: projects } = useProjects();
   const { data: users } = useUsers();
   const { data: statusNames } = useStatusNames();
+  const { data: categoryNames } = useCategoryNames();
+  const { data: milestoneNames } = useMilestoneNames();
   const { data: alertTickets } = useTickets({
     view: viewMode,
     ...spaceFilter,
@@ -76,6 +82,8 @@ export default function DashboardPage() {
           project: filters.project,
           status_name: filters.status_name,
           assignee: filters.assignee,
+          category: filters.category,
+          milestone: filters.milestone,
           search: filters.search,
         }}
         onChange={(f) =>
@@ -83,12 +91,16 @@ export default function DashboardPage() {
             project: f.project,
             status_name: f.status_name,
             assignee: f.assignee,
+            category: f.category,
+            milestone: f.milestone,
             search: f.search,
           })
         }
         projects={projects ?? []}
         users={users ?? []}
         statusNames={statusNames ?? []}
+        categoryNames={categoryNames ?? []}
+        milestoneNames={milestoneNames ?? []}
       />
 
       {viewMode === "my" && <MyTasksSummary stats={stats} />}

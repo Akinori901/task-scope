@@ -140,6 +140,8 @@ export default function TicketDetailPage() {
   const [newTags, setNewTags] = useState<string[]>([]);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
+  const [postingCommentId, setPostingCommentId] = useState<number | null>(null);
 
   if (isLoading) {
     return (
@@ -154,7 +156,7 @@ export default function TicketDetailPage() {
   }
 
   const evaluation = ticket.evaluation;
-  const needsReEval = evaluation != null && ticket.comment_count > evaluation.comment_count_at_eval;
+  const needsReEval = ticket.needs_re_evaluation;
   const hasSpec = ticket.comments?.some((c: TicketComment) => c.tags?.includes("spec"));
 
   const filteredComments = (ticket.comments || []).filter((c: TicketComment) => {
@@ -182,6 +184,7 @@ export default function TicketDetailPage() {
     postMutation.mutate(commentId, {
       onSuccess: () => setSnackMessage(`${postTarget} に投稿しました`),
       onError: () => setSnackMessage("投稿に失敗しました"),
+      onSettled: () => setPostingCommentId(null),
     });
   };
 
@@ -224,9 +227,23 @@ export default function TicketDetailPage() {
         >
           戻る
         </Button>
-        <Typography variant="h5" fontWeight={700}>
-          {ticket.issue_key}
-        </Typography>
+        <Box>
+          {ticket.parent_ticket_key && (
+            <Typography
+              variant="caption"
+              color="primary"
+              sx={{ cursor: "pointer", display: "block", lineHeight: 1 }}
+              onClick={() => {
+                if (ticket.parent_ticket_id) navigate(`/tickets/${ticket.parent_ticket_id}`);
+              }}
+            >
+              ↑ {ticket.parent_ticket_key}
+            </Typography>
+          )}
+          <Typography variant="h5" fontWeight={700}>
+            {ticket.issue_key}
+          </Typography>
+        </Box>
         {ticket.external_url && (
           <Tooltip title={`${ticket.source_type === "jira" ? "Jira" : "Backlog"} で開く`}>
             <IconButton
@@ -338,10 +355,50 @@ export default function TicketDetailPage() {
         </CardContent>
       </Card>
 
+      {/* 子チケット */}
+      {ticket.children && ticket.children.length > 0 && (
+        <Card>
+          <CardContent>
+            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+              子チケット ({ticket.children.length}件)
+            </Typography>
+            <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& td, & th": { py: 0.5, px: 1, fontSize: 13 } }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left" }}>キー</th>
+                  <th style={{ textAlign: "left" }}>件名</th>
+                  <th style={{ textAlign: "left" }}>ステータス</th>
+                  <th style={{ textAlign: "left" }}>担当者</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ticket.children.map((child) => (
+                  <Box
+                    component="tr"
+                    key={child.id}
+                    sx={{ cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}
+                    onClick={() => navigate(`/tickets/${child.id}`)}
+                  >
+                    <td>
+                      <Typography variant="body2" fontWeight={600} color="primary">
+                        {child.issue_key}
+                      </Typography>
+                    </td>
+                    <td>{child.summary}</td>
+                    <td><StatusChip status={child.status_name} /></td>
+                    <td>{child.assignee_name ?? "未割当"}</td>
+                  </Box>
+                ))}
+              </tbody>
+            </Box>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 再評価ヒント */}
-      {evaluation && ticket.comment_count > evaluation.comment_count_at_eval && (
+      {needsReEval && (
         <Alert severity="info" variant="outlined">
-          評価後に {ticket.comment_count - evaluation.comment_count_at_eval} 件の新しいコメントがあります — 再採点で最新情報を反映できます
+          評価後に {ticket.new_comment_count} 件の新しいコメントがあります — 再採点で最新情報を反映できます
         </Alert>
       )}
 
@@ -727,10 +784,14 @@ export default function TicketDetailPage() {
                         ...(comment.tags?.includes("spec") ? { maxHeight: 600, overflow: "auto" } : {}),
                       }}
                       dangerouslySetInnerHTML={{
-                        __html: comment.content.replace(
-                          /(https?:\/\/[^\s<>"')\]]+)/g,
-                          '<a href="$1" target="_blank" rel="noopener" style="color: #90caf9">$1</a>'
-                        ),
+                        __html: comment.content
+                          .replace(/&/g, "&amp;")
+                          .replace(/</g, "&lt;")
+                          .replace(/>/g, "&gt;")
+                          .replace(/"/g, "&quot;")
+                          .replace(/(https?:\/\/[^\s&<>"')\]]+)/g,
+                            '<a href="$1" target="_blank" rel="noopener" style="color: #90caf9">$1</a>'
+                          ),
                       }}
                     />
                   )}
@@ -773,25 +834,30 @@ export default function TicketDetailPage() {
                           <IconButton
                             size="small"
                             color="error"
-                            disabled={deleteMutation.isPending}
+                            disabled={deletingCommentId === comment.id}
                             onClick={() => {
                               if (window.confirm("このコメントを削除しますか？")) {
+                                setDeletingCommentId(comment.id);
                                 deleteMutation.mutate(comment.id, {
                                   onSuccess: () => setSnackMessage("コメントを削除しました"),
                                   onError: () => setSnackMessage("削除に失敗しました"),
+                                  onSettled: () => setDeletingCommentId(null),
                                 });
                               }
                             }}
                           >
-                            <DeleteIcon fontSize="small" />
+                            {deletingCommentId === comment.id ? <CircularProgress size={14} /> : <DeleteIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
                         <Button
                           size="small"
                           variant="outlined"
-                          startIcon={postMutation.isPending ? <CircularProgress size={12} /> : <SendIcon />}
-                          disabled={postMutation.isPending}
-                          onClick={() => handlePostToBacklog(comment.id)}
+                          startIcon={postingCommentId === comment.id ? <CircularProgress size={12} /> : <SendIcon />}
+                          disabled={postingCommentId === comment.id}
+                          onClick={() => {
+                            setPostingCommentId(comment.id);
+                            handlePostToBacklog(comment.id);
+                          }}
                         >
                           {postTarget} に投稿
                         </Button>

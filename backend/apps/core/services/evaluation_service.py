@@ -415,7 +415,7 @@ def evaluate_ticket(ticket: Ticket) -> TicketEvaluation:
             "schedule_comment": result.get("schedule_comment", ""),
             "summary": result.get("summary", ""),
             "pr_urls": pr_urls,
-            "comment_count_at_eval": ticket.comment_count,
+            "comment_count_at_eval": Comment.objects.filter(ticket=ticket).exclude(content="").count(),
             "model_used": "claude-sonnet (via subscription)",
         },
     )
