@@ -169,6 +169,7 @@ class JiraSyncService:
         logger.info("Syncing Jira tickets for %s ...", project.project_key)
         total = 0
         next_page_token: str | None = None
+        parent_map: list[tuple[int, int]] = []  # (ticket_id, parent_jira_id)
 
         while True:
             result = await self.client.search_issues(
@@ -180,18 +181,43 @@ class JiraSyncService:
                 break
 
             for issue_data in issues:
-                await self._upsert_ticket(project, issue_data)
+                ticket, parent_jira_id = await self._upsert_ticket(project, issue_data)
+                if parent_jira_id:
+                    parent_map.append((ticket.id, parent_jira_id))
                 total += 1
 
             next_page_token = result.get("nextPageToken")
             if not next_page_token:
                 break
 
+        # パス2: 親子リンク解決
+        if parent_map:
+            await self._resolve_parent_links(project, parent_map)
+
         project.last_synced_at = timezone.now()
         await project.asave()
         logger.info("Synced %d Jira tickets for %s", total, project.project_key)
 
-    async def _upsert_ticket(self, project: Project, data: dict[str, Any]) -> Ticket:
+    async def _resolve_parent_links(
+        self, project: Project, parent_map: list[tuple[int, int]]
+    ) -> None:
+        """親チケットリンクを一括解決（バッチ fetch + 個別 UPDATE）"""
+        parent_jira_ids = {pid for _, pid in parent_map}
+        parent_lookup: dict[int, int] = {}
+        async for t in Ticket.objects.filter(
+            project=project, backlog_id__in=parent_jira_ids
+        ).values_list("backlog_id", "id"):
+            parent_lookup[t[0]] = t[1]
+
+        linked = 0
+        for ticket_id, parent_jira_id in parent_map:
+            parent_pk = parent_lookup.get(parent_jira_id)
+            if parent_pk:
+                await Ticket.objects.filter(id=ticket_id).aupdate(parent_ticket_id=parent_pk)
+                linked += 1
+        logger.info("Resolved %d Jira parent links for %s", linked, project.project_key)
+
+    async def _upsert_ticket(self, project: Project, data: dict[str, Any]) -> tuple[Ticket, int | None]:
         fields = data.get("fields", {})
         issue_key = data.get("key", "")
         jira_id = int(data.get("id", 0))
@@ -268,6 +294,8 @@ class JiraSyncService:
                 "actual_hours": actual_hours,
                 "comment_count": comment_count,
                 "custom_fields": _extract_labels(fields),
+                "categories": [],
+                "milestone_names": [],
                 "backlog_created": _parse_datetime(fields.get("created")),
                 "backlog_updated": backlog_updated,
                 "is_overdue": is_overdue,
@@ -281,7 +309,9 @@ class JiraSyncService:
         # コメント同期
         await self._sync_ticket_comments(ticket)
 
-        return ticket
+        parent_data = fields.get("parent")
+        parent_jira_id = int(parent_data["id"]) if parent_data and parent_data.get("id") else None
+        return ticket, parent_jira_id
 
     async def _sync_ticket_comments(self, ticket: Ticket) -> None:
         assert self.client is not None

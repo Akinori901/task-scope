@@ -1,6 +1,7 @@
+from django.db.models import Count
 from rest_framework import serializers
 
-from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Project, Ticket, TicketEvaluation
+from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, Project, Ticket, TicketEvaluation
 
 
 class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):
@@ -38,6 +39,20 @@ class ExcludedStatusSerializer(serializers.ModelSerializer[ExcludedStatus]):
     class Meta:
         model = ExcludedStatus
         fields = ["id", "project", "project_key", "status_name"]
+
+
+class MilestoneSerializer(serializers.ModelSerializer["Milestone"]):
+    project_key = serializers.CharField(source="project.project_key", read_only=True)
+    project_name = serializers.CharField(source="project.name", read_only=True)
+
+    class Meta:
+        model = Milestone
+        fields = [
+            "id", "project", "project_key", "project_name",
+            "name", "start_date", "end_date", "sort_order",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
 
 
 class CodeRepositorySerializer(serializers.ModelSerializer[CodeRepository]):
@@ -139,11 +154,19 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
     project_key = serializers.CharField(source="project.project_key", read_only=True)
     project_name = serializers.CharField(source="project.name", read_only=True)
     assignee_name = serializers.SerializerMethodField()
+    parent_ticket_id = serializers.IntegerField(
+        source="parent_ticket.id", read_only=True, default=None
+    )
+    parent_ticket_key = serializers.CharField(
+        source="parent_ticket.issue_key", read_only=True, default=None
+    )
+    child_count = serializers.SerializerMethodField()
     source_type = serializers.SerializerMethodField()
     external_url = serializers.SerializerMethodField()
     has_evaluation = serializers.SerializerMethodField()
     has_spec = serializers.SerializerMethodField()
     needs_re_evaluation = serializers.SerializerMethodField()
+    new_comment_count = serializers.SerializerMethodField()
     spec_readiness = serializers.SerializerMethodField()
 
     class Meta:
@@ -162,6 +185,9 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
             "assignee_name",
             "project_key",
             "project_name",
+            "parent_ticket_id",
+            "parent_ticket_key",
+            "child_count",
             "start_date",
             "due_date",
             "estimated_hours",
@@ -180,8 +206,14 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
             "has_evaluation",
             "has_spec",
             "needs_re_evaluation",
+            "new_comment_count",
             "spec_readiness",
         ]
+
+    def get_child_count(self, obj: Ticket) -> int:
+        if hasattr(obj, "_child_count"):
+            return obj._child_count  # type: ignore[return-value]
+        return obj.child_tickets.count()
 
     def get_source_type(self, obj: Ticket) -> str:
         if obj.project.jira_space_id:
@@ -207,6 +239,8 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
         return hasattr(obj, "evaluation") and obj.evaluation is not None
 
     def get_has_spec(self, obj: Ticket) -> bool:
+        if hasattr(obj, "_has_spec"):
+            return obj._has_spec  # type: ignore[return-value]
         return Comment.objects.filter(ticket=obj, tags__contains=["spec"]).exists()
 
     def get_needs_re_evaluation(self, obj: Ticket) -> bool:
@@ -214,9 +248,26 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
             ev = obj.evaluation
             if ev is None:
                 return False
-            return obj.comment_count > ev.comment_count_at_eval
+            real_count = getattr(obj, "_real_comment_count", None)
+            if real_count is None:
+                real_count = obj.comments.exclude(content="").count()
+            return real_count > ev.comment_count_at_eval
         except TicketEvaluation.DoesNotExist:
             return False
+
+    def get_new_comment_count(self, obj: Ticket) -> int:
+        """評価後に追加された実コメント数（変更ログ除外）"""
+        try:
+            ev = obj.evaluation
+            if ev is None:
+                return 0
+            real_count = getattr(obj, "_real_comment_count", None)
+            if real_count is None:
+                real_count = obj.comments.exclude(content="").count()
+            diff = real_count - ev.comment_count_at_eval
+            return max(0, diff)
+        except TicketEvaluation.DoesNotExist:
+            return 0
 
     def get_spec_readiness(self, obj: Ticket) -> str | None:
         try:
@@ -230,6 +281,7 @@ class TicketDetailSerializer(TicketSerializer):
     comments = serializers.SerializerMethodField()
     description = serializers.CharField()
     matched_repositories = serializers.SerializerMethodField()
+    children = serializers.SerializerMethodField()
 
     class Meta(TicketSerializer.Meta):
         fields = [
@@ -239,12 +291,24 @@ class TicketDetailSerializer(TicketSerializer):
             "comments",
             "custom_fields",
             "matched_repositories",
+            "children",
         ]
 
     def get_comments(self, obj: Ticket) -> list[dict]:
         # 変化ログ（content が空）は除外
         qs = obj.comments.exclude(content="").select_related("created_user").order_by("backlog_created")
         return CommentSerializer(qs, many=True).data
+
+    def get_children(self, obj: Ticket) -> list[dict]:
+        children = (
+            obj.child_tickets.select_related(
+                "project", "project__space", "project__jira_space",
+                "assignee", "evaluation", "parent_ticket",
+            )
+            .annotate(_child_count=Count("child_tickets"))
+            .order_by("issue_key")
+        )
+        return TicketSerializer(children, many=True).data
 
     def get_matched_repositories(self, obj: Ticket) -> list[dict]:
         from apps.core.services.evaluation_service import resolve_repositories

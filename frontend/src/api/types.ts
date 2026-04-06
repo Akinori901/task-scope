@@ -56,6 +56,9 @@ export interface Ticket {
   priority_id: number;
   assignee: number | null;
   assignee_name: string | null;
+  parent_ticket_id: number | null;
+  parent_ticket_key: string | null;
+  child_count: number;
   project_key: string;
   project_name: string;
   start_date: string | null;
@@ -76,6 +79,7 @@ export interface Ticket {
   has_evaluation: boolean;
   has_spec: boolean;
   needs_re_evaluation: boolean;
+  new_comment_count: number;
   spec_readiness: "ready" | "partial" | "not_ready" | null;
 }
 
@@ -139,6 +143,48 @@ export interface TicketDetail extends Ticket {
   comments: TicketComment[];
   custom_fields: CustomField[];
   matched_repositories: MatchedRepository[];
+  children: Ticket[];
+}
+
+export interface GanttMilestoneStats {
+  total: number;
+  completed: number;
+  in_progress: number;
+  not_started: number;
+  stagnant: number;
+  completion_rate: number;
+}
+
+export interface GanttMilestone {
+  id: number;
+  project_key: string;
+  project_name: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  sort_order: number;
+  stats: GanttMilestoneStats;
+}
+
+export interface MilestoneData {
+  id: number;
+  project: number;
+  project_key: string;
+  project_name: string;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MilestoneInput {
+  project: number;
+  name: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  sort_order?: number;
 }
 
 export interface CodeRepository {

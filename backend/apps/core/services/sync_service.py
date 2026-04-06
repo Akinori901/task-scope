@@ -36,6 +36,12 @@ def _parse_date(value: str | None) -> date | None:
     return date.fromisoformat(value[:10])
 
 
+def _extract_list_field(data: dict[str, Any], field_key: str) -> list[str]:
+    """Backlog API のリスト属性（category/milestone）から名前リストを抽出する"""
+    items = data.get(field_key) or []
+    return [v.get("name", str(v)) if isinstance(v, dict) else str(v) for v in items]
+
+
 def _extract_custom_fields(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Backlog API の customFields + 標準リスト属性(カテゴリ/マイルストーン)を保存用に整形する"""
     result: list[dict[str, Any]] = []
@@ -207,6 +213,7 @@ class SyncService:
         logger.info("Syncing tickets for %s ...", project.project_key)
         offset = 0
         total = 0
+        parent_map: list[tuple[int, int]] = []  # (ticket_id, parent_backlog_id)
 
         while True:
             issues = await self.client.get_issues(
@@ -217,18 +224,43 @@ class SyncService:
                 break
 
             for issue_data in issues:
-                await self._upsert_ticket(project, issue_data)
+                ticket, parent_backlog_id = await self._upsert_ticket(project, issue_data)
+                if parent_backlog_id:
+                    parent_map.append((ticket.id, parent_backlog_id))
                 total += 1
 
             offset += len(issues)
             if len(issues) < 100:
                 break
 
+        # パス2: 親子リンク解決
+        if parent_map:
+            await self._resolve_parent_links(project, parent_map)
+
         project.last_synced_at = timezone.now()
         await project.asave()
         logger.info("Synced %d tickets for %s", total, project.project_key)
 
-    async def _upsert_ticket(self, project: Project, data: dict[str, Any]) -> Ticket:
+    async def _resolve_parent_links(
+        self, project: Project, parent_map: list[tuple[int, int]]
+    ) -> None:
+        """親チケットリンクを一括解決（バッチ fetch + 個別 UPDATE）"""
+        parent_backlog_ids = {pid for _, pid in parent_map}
+        parent_lookup: dict[int, int] = {}
+        async for t in Ticket.objects.filter(
+            project=project, backlog_id__in=parent_backlog_ids
+        ).values_list("backlog_id", "id"):
+            parent_lookup[t[0]] = t[1]
+
+        linked = 0
+        for ticket_id, parent_backlog_id in parent_map:
+            parent_pk = parent_lookup.get(parent_backlog_id)
+            if parent_pk:
+                await Ticket.objects.filter(id=ticket_id).aupdate(parent_ticket_id=parent_pk)
+                linked += 1
+        logger.info("Resolved %d parent links for %s", linked, project.project_key)
+
+    async def _upsert_ticket(self, project: Project, data: dict[str, Any]) -> tuple[Ticket, int | None]:
         assignee = await self._upsert_user(data.get("assignee"))
         created_user = await self._upsert_user(data.get("createdUser"))
 
@@ -288,6 +320,8 @@ class SyncService:
                 "actual_hours": data.get("actualHours"),
                 "comment_count": data.get("commentCount", 0) or 0,
                 "custom_fields": _extract_custom_fields(data),
+                "categories": _extract_list_field(data, "category"),
+                "milestone_names": _extract_list_field(data, "milestone"),
                 "backlog_created": _parse_datetime(data.get("created")),
                 "backlog_updated": backlog_updated,
                 "is_overdue": is_overdue,
@@ -298,10 +332,21 @@ class SyncService:
             },
         )
 
+        # マイルストーンレコードの自動登録
+        milestone_names = ticket.milestone_names or []
+        if milestone_names:
+            from apps.core.models import Milestone
+
+            for ms_name in milestone_names:
+                await Milestone.objects.aget_or_create(
+                    project=project, name=ms_name,
+                )
+
         # コメント同期
         await self._sync_ticket_comments(ticket)
 
-        return ticket
+        parent_backlog_id = data.get("parentIssueId")
+        return ticket, parent_backlog_id
 
     async def _sync_ticket_comments(self, ticket: Ticket) -> None:
         assert self.client is not None

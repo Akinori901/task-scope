@@ -161,6 +161,10 @@ class Ticket(models.Model):
     # カスタム属性（Backlog のカスタムフィールドを JSON で保存）
     custom_fields = models.JSONField(default=list, blank=True)
 
+    # カテゴリ・マイルストーン（custom_fields から抽出、フィルタ用）
+    categories = models.JSONField(default=list, blank=True, help_text="カテゴリ名リスト")
+    milestone_names = models.JSONField(default=list, blank=True, help_text="マイルストーン名リスト")
+
     # ステータス変更追跡
     previous_status_name = models.CharField(max_length=100, blank=True, null=True)
     status_changed_at = models.DateTimeField(null=True, blank=True)
@@ -169,6 +173,16 @@ class Ticket(models.Model):
     is_overdue = models.BooleanField(default=False, db_index=True)
     is_stagnant = models.BooleanField(default=False, db_index=True)
     stagnant_days = models.PositiveIntegerField(default=0)
+
+    # 親子関係
+    parent_ticket = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="child_tickets",
+        help_text="親チケット",
+    )
 
     class Meta:
         db_table = "tickets"
@@ -242,6 +256,28 @@ class CodeRepository(models.Model):
     class Meta:
         db_table = "code_repositories"
         ordering = ["project", "name"]
+
+    def __str__(self) -> str:
+        return f"{self.project.project_key}: {self.name}"
+
+
+class Milestone(models.Model):
+    """マイルストーン（プロジェクト単位、期間はローカル管理）"""
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="milestones")
+    name = models.CharField(max_length=200)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "milestones"
+        ordering = ["sort_order", "start_date"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "name"], name="uq_project_milestone"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.project.project_key}: {self.name}"

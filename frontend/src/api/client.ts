@@ -6,9 +6,12 @@ import type {
   CodeRepository,
   CodeRepositoryInput,
   DashboardStats,
+  GanttMilestone,
   ExcludedStatus,
   JiraSpace,
   JiraSpaceInput,
+  MilestoneData,
+  MilestoneInput,
   PaginatedResponse,
   Project,
   Ticket,
@@ -36,6 +39,8 @@ export interface DashboardFilterParams {
   project?: number;
   status_name?: string;
   assignee?: number;
+  category?: string;
+  milestone?: string;
   search?: string;
 }
 
@@ -49,8 +54,12 @@ export interface TicketQueryParams {
   project?: number;
   status_name?: string;
   assignee?: number;
+  category?: string;
+  milestone?: string;
   is_overdue?: boolean;
   is_stagnant?: boolean;
+  is_root?: boolean;
+  parent_id?: number;
   exclude_completed?: boolean;
   search?: string;
   ordering?: string;
@@ -71,6 +80,22 @@ export const fetchStatusNames = (spaceFilter?: { space?: number; jira_space?: nu
   else if (spaceFilter?.space) params.space = spaceFilter.space;
   else if (spaceFilter?.jira_space) params.jira_space = spaceFilter.jira_space;
   return apiClient.get<string[]>("/status-names/", { params });
+};
+
+export const fetchCategoryNames = (spaceFilter?: { space?: number; jira_space?: number }, projectId?: number | null) => {
+  const params: Record<string, number> = {};
+  if (projectId) params.project = projectId;
+  else if (spaceFilter?.space) params.space = spaceFilter.space;
+  else if (spaceFilter?.jira_space) params.jira_space = spaceFilter.jira_space;
+  return apiClient.get<string[]>("/category-names/", { params });
+};
+
+export const fetchMilestoneNames = (spaceFilter?: { space?: number; jira_space?: number }, projectId?: number | null) => {
+  const params: Record<string, number> = {};
+  if (projectId) params.project = projectId;
+  else if (spaceFilter?.space) params.space = spaceFilter.space;
+  else if (spaceFilter?.jira_space) params.jira_space = spaceFilter.jira_space;
+  return apiClient.get<string[]>("/milestone-names/", { params });
 };
 
 export const fetchUsers = (spaceFilter?: { space?: number; jira_space?: number }) =>
@@ -203,6 +228,27 @@ export const createExcludedStatus = (project: number, status_name: string) =>
 
 export const deleteExcludedStatus = (id: number) =>
   apiClient.delete(`/excluded-statuses/${id}/`);
+
+// --- Gantt ---
+
+export const fetchGanttMilestones = (params: TicketQueryParams) =>
+  apiClient.get<GanttMilestone[]>("/gantt/milestones/", { params });
+
+// --- Milestones ---
+
+export const fetchMilestones = (spaceFilter?: { space?: number; jira_space?: number }, projectId?: number) => {
+  const params: Record<string, number> = {};
+  if (projectId) params.project = projectId;
+  else if (spaceFilter?.space) params.space = spaceFilter.space;
+  else if (spaceFilter?.jira_space) params.jira_space = spaceFilter.jira_space;
+  return apiClient.get<MilestoneData[]>("/milestones/", { params });
+};
+
+export const updateMilestone = (id: number, data: Partial<MilestoneInput>) =>
+  apiClient.patch<MilestoneData>(`/milestones/${id}/`, data);
+
+export const deleteMilestone = (id: number) =>
+  apiClient.delete(`/milestones/${id}/`);
 
 // --- Code Repositories ---
 

@@ -15,6 +15,8 @@ interface Props {
   projects: Project[];
   users: BacklogUser[];
   statusNames?: string[];
+  categoryNames?: string[];
+  milestoneNames?: string[];
 }
 
 export default function TicketFilters({
@@ -23,6 +25,8 @@ export default function TicketFilters({
   projects,
   users,
   statusNames = [],
+  categoryNames = [],
+  milestoneNames = [],
 }: Props) {
   return (
     <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 2 }}>
@@ -95,6 +99,50 @@ export default function TicketFilters({
           {users.map((u) => (
             <MenuItem key={u.id} value={u.id}>
               {u.name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <FormControl size="small" sx={{ minWidth: 140 }}>
+        <InputLabel>カテゴリ</InputLabel>
+        <Select
+          value={filters.category ?? ""}
+          label="カテゴリ"
+          onChange={(e) =>
+            onChange({
+              ...filters,
+              category: e.target.value || undefined,
+              page: 1,
+            })
+          }
+        >
+          <MenuItem value="">すべて</MenuItem>
+          {categoryNames.map((c) => (
+            <MenuItem key={c} value={c}>
+              {c}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <FormControl size="small" sx={{ minWidth: 160 }}>
+        <InputLabel>マイルストーン</InputLabel>
+        <Select
+          value={filters.milestone ?? ""}
+          label="マイルストーン"
+          onChange={(e) =>
+            onChange({
+              ...filters,
+              milestone: e.target.value || undefined,
+              page: 1,
+            })
+          }
+        >
+          <MenuItem value="">すべて</MenuItem>
+          {milestoneNames.map((m) => (
+            <MenuItem key={m} value={m}>
+              {m}
             </MenuItem>
           ))}
         </Select>
