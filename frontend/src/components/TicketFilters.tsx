@@ -1,7 +1,9 @@
 import {
   Box,
+  Checkbox,
   FormControl,
   InputLabel,
+  ListItemText,
   MenuItem,
   Select,
   TextField,
@@ -28,6 +30,11 @@ export default function TicketFilters({
   categoryNames = [],
   milestoneNames = [],
 }: Props) {
+  // status_name はカンマ区切り文字列 ↔ string[] で変換
+  const selectedStatuses: string[] = filters.status_name
+    ? filters.status_name.split(",").map((s) => s.trim())
+    : [];
+
   return (
     <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 2 }}>
       <TextField
@@ -60,23 +67,27 @@ export default function TicketFilters({
         </Select>
       </FormControl>
 
-      <FormControl size="small" sx={{ minWidth: 140 }}>
+      <FormControl size="small" sx={{ minWidth: 160 }}>
         <InputLabel>ステータス</InputLabel>
         <Select
-          value={filters.status_name ?? ""}
+          multiple
+          value={selectedStatuses}
           label="ステータス"
-          onChange={(e) =>
+          onChange={(e) => {
+            const val = e.target.value;
+            const arr = typeof val === "string" ? val.split(",") : val;
             onChange({
               ...filters,
-              status_name: e.target.value || undefined,
+              status_name: arr.length > 0 ? arr.join(",") : undefined,
               page: 1,
-            })
-          }
+            });
+          }}
+          renderValue={(sel) => sel.length === 0 ? "すべて" : `${sel.length}件選択`}
         >
-          <MenuItem value="">すべて</MenuItem>
           {statusNames.map((s) => (
             <MenuItem key={s} value={s}>
-              {s}
+              <Checkbox checked={selectedStatuses.includes(s)} size="small" />
+              <ListItemText primary={s} />
             </MenuItem>
           ))}
         </Select>
@@ -156,7 +167,9 @@ export default function TicketFilters({
               ? "overdue"
               : filters.is_stagnant !== undefined
                 ? "stagnant"
-                : ""
+                : filters.is_watched !== undefined
+                  ? "watched"
+                  : ""
           }
           label="状態"
           onChange={(e) => {
@@ -165,6 +178,7 @@ export default function TicketFilters({
               ...filters,
               is_overdue: val === "overdue" ? true : undefined,
               is_stagnant: val === "stagnant" ? true : undefined,
+              is_watched: val === "watched" ? true : undefined,
               page: 1,
             });
           }}
@@ -172,6 +186,7 @@ export default function TicketFilters({
           <MenuItem value="">すべて</MenuItem>
           <MenuItem value="overdue">遅延のみ</MenuItem>
           <MenuItem value="stagnant">停滞のみ</MenuItem>
+          <MenuItem value="watched">ウォッチ中</MenuItem>
         </Select>
       </FormControl>
     </Box>

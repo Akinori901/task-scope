@@ -11,6 +11,7 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
     jira_space = django_filters.NumberFilter(field_name="project__jira_space_id")
     view = django_filters.CharFilter(method="filter_view")
     exclude_completed = django_filters.BooleanFilter(method="filter_exclude_completed")
+    status_name = django_filters.CharFilter(method="filter_status_name")
     category = django_filters.CharFilter(method="filter_category")
     milestone = django_filters.CharFilter(method="filter_milestone")
     is_root = django_filters.BooleanFilter(method="filter_is_root")
@@ -19,12 +20,20 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
     class Meta:
         model = Ticket
         fields = {
-            "status_name": ["exact"],
             "priority_name": ["exact"],
             "assignee": ["exact"],
             "is_overdue": ["exact"],
             "is_stagnant": ["exact"],
+            "is_watched": ["exact"],
         }
+
+    def filter_status_name(self, queryset, name, value):  # type: ignore[no-untyped-def]
+        if value:
+            names = [v.strip() for v in value.split(",")]
+            if len(names) == 1:
+                return queryset.filter(status_name=names[0])
+            return queryset.filter(status_name__in=names)
+        return queryset
 
     def filter_view(self, queryset, name, value):  # type: ignore[no-untyped-def]
         if value == "my":

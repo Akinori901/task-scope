@@ -17,6 +17,7 @@ import {
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { ViewMode } from "../api/types";
 import BackgroundTaskBar from "./BackgroundTaskBar";
+import { useAutoSync } from "../hooks/useAutoSync";
 import { useJiraSpaces } from "../hooks/useJiraSpaces";
 import { useSpaces } from "../hooks/useSpaces";
 import { useSync } from "../hooks/useSync";
@@ -27,6 +28,7 @@ export default function Layout() {
   const syncMutation = useSync();
   const { data: spaces } = useSpaces();
   const { data: jiraSpaces } = useJiraSpaces();
+  useAutoSync(spaces);
   const navigate = useNavigate();
   const location = useLocation();
 

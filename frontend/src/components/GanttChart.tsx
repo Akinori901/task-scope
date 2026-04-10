@@ -153,25 +153,32 @@ function GanttTicketRow({
           paddingLeft: pl,
           paddingRight: 4,
           overflow: "hidden",
-          whiteSpace: "nowrap",
-          textOverflow: "ellipsis",
           background: "var(--bg-sub)",
           fontSize: 12,
+          lineHeight: 1.3,
         }}
       >
-        {hasChildren && onToggle && (
-          <span
-            style={{ cursor: "pointer", marginRight: 2, fontSize: 14, verticalAlign: "middle" }}
-            onClick={(e) => { e.stopPropagation(); onToggle(); }}
-          >
-            {isExpanded ? "▾" : "▸"}
-          </span>
-        )}
-        <span style={{ color: "var(--primary)", fontWeight: 600, marginRight: 4 }}>{ticket.issue_key}</span>
-        <span style={{ color: "var(--text-secondary)" }}>{ticket.summary}</span>
-        {hasChildren && (
-          <span style={{ color: "var(--text-secondary)", fontSize: 10, marginLeft: 4 }}>({ticket.child_count})</span>
-        )}
+        <div style={{ display: "flex", alignItems: "flex-start" }}>
+          {hasChildren && onToggle && (
+            <span
+              style={{ cursor: "pointer", marginRight: 2, fontSize: 14, flexShrink: 0 }}
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            >
+              {isExpanded ? "▾" : "▸"}
+            </span>
+          )}
+          <div style={{ overflow: "hidden", minWidth: 0 }}>
+            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: "var(--text-secondary)" }}>{ticket.summary}</span>
+              {hasChildren && (
+                <span style={{ color: "var(--text-secondary)", fontSize: 10, marginLeft: 4 }}>({ticket.child_count})</span>
+              )}
+            </div>
+            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: "var(--primary)", fontWeight: 600, fontSize: 10 }}>{ticket.issue_key}</span>
+            </div>
+          </div>
+        </div>
       </td>
       <td
         colSpan={weeks.length}

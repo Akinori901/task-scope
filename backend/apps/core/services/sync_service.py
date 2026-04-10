@@ -5,7 +5,10 @@ import re
 from datetime import date, datetime
 from typing import Any
 
+from django.db import close_old_connections
 from django.utils import timezone
+
+from asgiref.sync import sync_to_async
 
 from apps.core.models import BacklogSpace, BacklogUser, Comment, ExcludedStatus, Project, Ticket
 from apps.core.services.backlog_client import BacklogClient
@@ -88,6 +91,7 @@ class SyncService:
         self.client: BacklogClient | None = None
         self._user_cache: dict[int, BacklogUser] = {}
         self._excluded_names: set[str] = set()
+        self._myself_backlog_id: int | None = None
 
     async def sync_all(self) -> None:
         """DB に登録された全スペースのデータを同期する"""
@@ -123,7 +127,6 @@ class SyncService:
             logger.info("Sync started for %s", space)
 
             # 除外ステータス名をキャッシュ（async context で先に読み込む）
-            from asgiref.sync import sync_to_async
             self._excluded_names = await sync_to_async(ExcludedStatus.get_excluded_names)()
 
             # 1. 自分の情報を取得
@@ -134,9 +137,14 @@ class SyncService:
 
             # 3. 各プロジェクトのチケットを取得
             for project in projects:
+                await sync_to_async(close_old_connections)()
                 await self._sync_project_tickets(project)
 
-            # 4. 同期完了
+            # 4. ウォッチ中チケットを同期
+            await sync_to_async(close_old_connections)()
+            await self._sync_watchings()
+
+            # 5. 同期完了
             space.last_synced_at = timezone.now()
             await space.asave()
 
@@ -160,6 +168,7 @@ class SyncService:
             },
         )
         self._user_cache[data["id"]] = user
+        self._myself_backlog_id = data["id"]
         logger.info("Synced myself: %s", user.name)
         return user
 
@@ -435,3 +444,43 @@ class SyncService:
 
         if mentioned_users:
             await comment.mentioned_users.aset(mentioned_users)
+
+    async def _sync_watchings(self) -> None:
+        """ウォッチ中チケットを同期する"""
+        assert self.client is not None
+        assert self.space is not None
+
+        if self._myself_backlog_id is None:
+            logger.warning("myself_backlog_id が不明のため、ウォッチ同期をスキップ")
+            return
+
+        # リセット
+        await Ticket.objects.filter(
+            project__space=self.space, is_watched=True
+        ).aupdate(is_watched=False)
+
+        # ウォッチ中の issue_id を取得
+        watched_backlog_ids: list[int] = []
+        offset = 0
+        while True:
+            watchings = await self.client.get_user_watchings(
+                self._myself_backlog_id, count=100, offset=offset
+            )
+            if not watchings:
+                break
+            for w in watchings:
+                issue = w.get("issue")
+                if issue:
+                    watched_backlog_ids.append(issue["id"])
+            offset += len(watchings)
+            if len(watchings) < 100:
+                break
+
+        # バルク更新
+        if watched_backlog_ids:
+            updated = await Ticket.objects.filter(
+                project__space=self.space, backlog_id__in=watched_backlog_ids
+            ).aupdate(is_watched=True)
+            logger.info("Marked %d tickets as watched", updated)
+        else:
+            logger.info("No watched tickets found")

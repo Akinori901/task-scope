@@ -58,6 +58,7 @@ export interface TicketQueryParams {
   milestone?: string;
   is_overdue?: boolean;
   is_stagnant?: boolean;
+  is_watched?: boolean;
   is_root?: boolean;
   parent_id?: number;
   exclude_completed?: boolean;

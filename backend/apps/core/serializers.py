@@ -7,7 +7,7 @@ from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment,
 class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):
     class Meta:
         model = BacklogSpace
-        fields = ["id", "space_key", "domain", "api_key", "last_synced_at", "created_at", "updated_at"]
+        fields = ["id", "space_key", "domain", "api_key", "last_synced_at", "sync_interval_minutes", "created_at", "updated_at"]
         extra_kwargs = {
             "api_key": {"write_only": True},
         }
@@ -198,6 +198,7 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
             "backlog_updated",
             "is_overdue",
             "is_stagnant",
+            "is_watched",
             "stagnant_days",
             "previous_status_name",
             "status_changed_at",

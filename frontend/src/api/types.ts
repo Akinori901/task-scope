@@ -4,6 +4,7 @@ export interface BacklogSpace {
   domain: "backlog.jp" | "backlog.com";
   api_key_masked: string;
   last_synced_at: string | null;
+  sync_interval_minutes: number;
   created_at: string;
   updated_at: string;
 }
@@ -12,6 +13,7 @@ export interface BacklogSpaceInput {
   space_key: string;
   domain: "backlog.jp" | "backlog.com";
   api_key: string;
+  sync_interval_minutes?: number;
 }
 
 export interface JiraSpace {
@@ -71,6 +73,7 @@ export interface Ticket {
   backlog_updated: string;
   is_overdue: boolean;
   is_stagnant: boolean;
+  is_watched: boolean;
   stagnant_days: number;
   previous_status_name: string | null;
   status_changed_at: string | null;

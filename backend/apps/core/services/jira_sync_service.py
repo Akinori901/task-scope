@@ -5,6 +5,9 @@ import re
 from datetime import date, datetime
 from typing import Any
 
+from asgiref.sync import sync_to_async
+
+from django.db import close_old_connections
 from django.utils import timezone
 
 from apps.core.models import BacklogUser, Comment, ExcludedStatus, JiraSpace, Project, Ticket
@@ -75,7 +78,6 @@ class JiraSyncService:
         try:
             logger.info("Jira sync started for %s", space)
 
-            from asgiref.sync import sync_to_async
             self._excluded_names = await sync_to_async(ExcludedStatus.get_excluded_names)()
 
             # 1. 自分の情報
@@ -86,6 +88,7 @@ class JiraSyncService:
 
             # 3. 各プロジェクトのチケット
             for project in projects:
+                await sync_to_async(close_old_connections)()
                 await self._sync_project_tickets(project)
 
             # 4. 完了
