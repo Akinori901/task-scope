@@ -79,6 +79,8 @@ DATABASES = {
         "PASSWORD": env("MYSQL_PASSWORD", default="changeme"),
         "HOST": env("MYSQL_HOST", default="db"),
         "PORT": env("MYSQL_PORT", default="3306"),
+        "CONN_MAX_AGE": 600,
+        "CONN_HEALTH_CHECKS": True,
         "OPTIONS": {
             "charset": "utf8mb4",
         },

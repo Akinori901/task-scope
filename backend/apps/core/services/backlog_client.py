@@ -83,3 +83,15 @@ class BacklogClient:
             data={"content": content},
         )
         return result
+
+    async def get_user_watchings(
+        self,
+        user_id: int,
+        count: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = await self._get(
+            f"/users/{user_id}/watchings",
+            params={"count": count, "offset": offset},
+        )
+        return result

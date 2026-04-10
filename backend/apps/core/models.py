@@ -42,6 +42,9 @@ class BacklogSpace(models.Model):
     )
     api_key = models.CharField(max_length=255)
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_interval_minutes = models.PositiveIntegerField(
+        default=0, help_text="自動同期間隔（分）。0=手動のみ"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -172,6 +175,7 @@ class Ticket(models.Model):
     # 遅延・停滞判定（同期時に算出）
     is_overdue = models.BooleanField(default=False, db_index=True)
     is_stagnant = models.BooleanField(default=False, db_index=True)
+    is_watched = models.BooleanField(default=False, db_index=True)
     stagnant_days = models.PositiveIntegerField(default=0)
 
     # 親子関係

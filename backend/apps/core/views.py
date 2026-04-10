@@ -7,6 +7,7 @@ import logging
 import threading
 import uuid
 
+from django.db import close_old_connections
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 from django.http import HttpResponse
 from django.utils import timezone
@@ -968,11 +969,13 @@ class SyncTriggerView(APIView):
     def post(self, request: Request) -> Response:
         space_id = request.data.get("space_id")
         try:
+            close_old_connections()
             service = SyncService()
             if space_id:
                 asyncio.run(service.sync_space(int(space_id)))
             else:
                 asyncio.run(service.sync_all())
+            close_old_connections()
             return Response({"status": "ok", "message": "Sync completed"})
         except ValueError as e:
             return Response(
@@ -994,8 +997,10 @@ class JiraSyncTriggerView(APIView):
         from apps.core.services.jira_sync_service import JiraSyncService
 
         try:
+            close_old_connections()
             service = JiraSyncService()
             asyncio.run(service.sync_space(pk))
+            close_old_connections()
             return Response({"status": "ok", "message": "Jira sync completed"})
         except ValueError as e:
             return Response(

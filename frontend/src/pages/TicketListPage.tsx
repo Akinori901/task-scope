@@ -49,7 +49,7 @@ export default function TicketListPage() {
     view: viewMode,
     ...spaceFilter,
     exclude_completed: excludeCompleted || undefined,
-    is_root: true as const,
+    ...(filters.search ? {} : { is_root: true as const }),
   };
   const { data, isLoading } = useTickets(mergedFilters);
   const { data: projects, isLoading: projectsLoading } = useProjects();
@@ -78,7 +78,7 @@ export default function TicketListPage() {
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
         <TicketFilters
-          filters={mergedFilters}
+          filters={filters}
           onChange={setFilters}
           projects={projects ?? []}
           users={users ?? []}
