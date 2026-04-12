@@ -111,6 +111,12 @@ function TicketRow({
       hover
       sx={{ cursor: "pointer" }}
       onClick={() => navigate(`/tickets/${ticket.id}`)}
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          window.open(`/tickets/${ticket.id}`, "_blank");
+        }
+      }}
     >
       <TableCell>
         <Box sx={{ display: "flex", alignItems: "center", pl: indent * 3 }}>

@@ -219,7 +219,7 @@ export default function TicketDetailPage() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "sticky", top: 0, zIndex: 10, bgcolor: "background.default", mx: -3, px: 3, py: 1.5, borderBottom: 1, borderColor: "divider" }}>
         <Button
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate(-1)}
