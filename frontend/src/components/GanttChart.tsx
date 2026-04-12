@@ -138,6 +138,12 @@ function GanttTicketRow({
     <tr
       style={{ cursor: "pointer" }}
       onClick={() => navigate(`/tickets/${ticket.id}`)}
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          window.open(`/tickets/${ticket.id}`, "_blank");
+        }
+      }}
     >
       <td
         style={{
