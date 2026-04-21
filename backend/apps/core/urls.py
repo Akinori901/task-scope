@@ -38,6 +38,9 @@ from apps.core.views import (
     TicketExportView,
     TicketGenerateSpecView,
     TicketListView,
+    TicketTagDetailView,
+    TicketTagListCreateView,
+    TicketUpdateCustomTagsView,
 )
 
 urlpatterns = [
@@ -76,6 +79,9 @@ urlpatterns = [
     path("repositories/", CodeRepositoryListCreateView.as_view(), name="repository-list"),
     path("repositories/<int:pk>/", CodeRepositoryDetailView.as_view(), name="repository-detail"),
     path("browse-dirs/", BrowseDirsView.as_view(), name="browse-dirs"),
+    path("ticket-tags/", TicketTagListCreateView.as_view(), name="ticket-tag-list"),
+    path("ticket-tags/<int:pk>/", TicketTagDetailView.as_view(), name="ticket-tag-detail"),
+    path("tickets/<int:pk>/custom-tags/", TicketUpdateCustomTagsView.as_view(), name="ticket-update-custom-tags"),
     path("tasks/", BackgroundTaskStatusView.as_view(), name="task-list"),
     path("tasks/<str:task_id>/", BackgroundTaskDetailView.as_view(), name="task-detail"),
 ]

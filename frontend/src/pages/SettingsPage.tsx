@@ -79,6 +79,12 @@ import {
   useJiraSpaces,
   useUpdateJiraSpace,
 } from "../hooks/useJiraSpaces";
+import {
+  useTicketTags,
+  useCreateTicketTag,
+  useUpdateTicketTag,
+  useDeleteTicketTag,
+} from "../hooks/useTicketTags";
 import { DEFAULT_BUFFER_CONFIG, useViewStore } from "../stores/viewStore";
 
 const emptyForm: BacklogSpaceInput = {
@@ -175,7 +181,7 @@ export default function SettingsPage() {
   const [newStatus, setNewStatus] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<number | "">("");
   const [myselfSpaceId, setMyselfSpaceId] = useState<number | "">("");
-  const { data: spaceUsers } = useUsers(myselfSpaceId || null);
+  const { data: spaceUsers } = useUsers(myselfSpaceId ? `b:${myselfSpaceId}` : null);
   const toggleMyselfMutation = useToggleMyself();
   const { data: statusNames } = useStatusNames(selectedProjectId || null);
   const createMutation = useCreateSpace();
@@ -254,6 +260,14 @@ export default function SettingsPage() {
   const emptyRepoForm: CodeRepositoryInput = { project: 0, name: "", local_path: "" };
   const [repoForm, setRepoForm] = useState<CodeRepositoryInput>(emptyRepoForm);
   const [deleteRepoConfirm, setDeleteRepoConfirm] = useState<CodeRepository | null>(null);
+
+  // タグ管理
+  const { data: ticketTags } = useTicketTags();
+  const createTagMutation = useCreateTicketTag();
+  const updateTagMutation = useUpdateTicketTag();
+  const deleteTagMutation = useDeleteTicketTag();
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("default");
 
   // ヘルプポップオーバー
   const [helpAnchor, setHelpAnchor] = useState<{ key: string; el: HTMLElement } | null>(null);
@@ -346,6 +360,7 @@ export default function SettingsPage() {
         <Tab label="接続設定" />
         <Tab label="プロジェクト設定" />
         <Tab label="マイルストーン" />
+        <Tab label="タグ" />
         <Tab label="バッファ" />
         <Tab label="表示設定" />
       </Tabs>
@@ -1303,8 +1318,140 @@ export default function SettingsPage() {
 
       </>)}
 
-      {/* === タブ4: 表示設定 === */}
-      {activeTab === 4 && (<>
+      {/* === タブ3: タグ === */}
+      {activeTab === 3 && (<>
+      <Typography variant="h6" fontWeight={700}>次工程タグ</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        チケットに付与する次工程タグを管理します。
+      </Typography>
+
+      <Card variant="outlined">
+        <CardContent>
+          <Box sx={{ display: "flex", gap: 2, mb: 2, alignItems: "center" }}>
+            <TextField
+              label="タグ名"
+              size="small"
+              value={newTagName}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTagName(e.target.value)}
+              sx={{ minWidth: 200 }}
+            />
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>色</InputLabel>
+              <Select
+                value={newTagColor}
+                label="色"
+                onChange={(e) => setNewTagColor(e.target.value)}
+              >
+                <MenuItem value="default">グレー</MenuItem>
+                <MenuItem value="primary">ブルー</MenuItem>
+                <MenuItem value="info">ライトブルー</MenuItem>
+                <MenuItem value="success">グリーン</MenuItem>
+                <MenuItem value="warning">オレンジ</MenuItem>
+                <MenuItem value="error">レッド</MenuItem>
+                <MenuItem value="secondary">パープル</MenuItem>
+              </Select>
+            </FormControl>
+            <Chip
+              label={newTagName || "プレビュー"}
+              color={newTagColor as "default" | "primary" | "info" | "success" | "warning" | "error" | "secondary"}
+              size="small"
+            />
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              disabled={!newTagName.trim() || createTagMutation.isPending}
+              onClick={() => {
+                createTagMutation.mutate(
+                  { name: newTagName.trim(), color: newTagColor },
+                  { onSuccess: () => { setNewTagName(""); setNewTagColor("default"); } },
+                );
+              }}
+            >
+              追加
+            </Button>
+          </Box>
+
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700 }}>タグ名</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>色</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>プレビュー</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>並び順</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }} align="right">操作</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {ticketTags?.map((tag) => (
+                  <TableRow key={tag.id}>
+                    <TableCell>{tag.name}</TableCell>
+                    <TableCell>
+                      <Select
+                        size="small"
+                        value={tag.color}
+                        onChange={(e) => {
+                          updateTagMutation.mutate({ id: tag.id, data: { color: e.target.value } });
+                        }}
+                        sx={{ minWidth: 100, fontSize: 13 }}
+                      >
+                        <MenuItem value="default">グレー</MenuItem>
+                        <MenuItem value="primary">ブルー</MenuItem>
+                        <MenuItem value="info">ライトブルー</MenuItem>
+                        <MenuItem value="success">グリーン</MenuItem>
+                        <MenuItem value="warning">オレンジ</MenuItem>
+                        <MenuItem value="error">レッド</MenuItem>
+                        <MenuItem value="secondary">パープル</MenuItem>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={tag.name}
+                        color={tag.color as "default" | "primary" | "info" | "success" | "warning" | "error" | "secondary"}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={tag.sort_order}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          updateTagMutation.mutate({ id: tag.id, data: { sort_order: Number(e.target.value) } });
+                        }}
+                        sx={{ width: 70 }}
+                        slotProps={{ htmlInput: { min: 0 } }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => deleteTagMutation.mutate(tag.id)}
+                        disabled={deleteTagMutation.isPending}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(!ticketTags || ticketTags.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">
+                      <Typography variant="body2" color="text.secondary">タグがまだ登録されていません</Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+      </>)}
+
+      {/* === タブ5: 表示設定 === */}
+      {activeTab === 5 && (<>
 
       {/* 自分紐づけ設定 */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
@@ -1493,8 +1640,8 @@ export default function SettingsPage() {
 
       </>)}
 
-      {/* === タブ3: バッファ === */}
-      {activeTab === 3 && (<>
+      {/* === タブ4: バッファ === */}
+      {activeTab === 4 && (<>
       <Typography variant="h6" fontWeight={700}>バッファ係数設定</Typography>
 
       <Card>

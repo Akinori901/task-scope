@@ -27,6 +27,7 @@ import { useNavigate } from "react-router-dom";
 import type { TicketQueryParams } from "../api/client";
 import type { PaginatedResponse, Ticket } from "../api/types";
 import { useTickets } from "../hooks/useTickets";
+import { useTicketTags } from "../hooks/useTicketTags";
 import PriorityChip from "./PriorityChip";
 import StatusChip from "./StatusChip";
 
@@ -47,6 +48,7 @@ const columns: {
   { key: "summary", label: "件名", sortable: true },
   { key: "project_key", label: "PJ", sortable: false, width: 80 },
   { key: "status_name", label: "ステータス", sortable: true, width: 110 },
+  { key: "custom_tags", label: "次工程", sortable: false, width: 140 },
   { key: "priority_name", label: "優先度", sortable: true, width: 80 },
   { key: "assignee_name", label: "担当者", sortable: false, width: 100 },
   { key: "due_date", label: "期限", sortable: true, width: 110 },
@@ -97,11 +99,13 @@ function TicketRow({
   indent = 0,
   expanded,
   onToggle,
+  tagColorMap = {},
 }: {
   ticket: Ticket;
   indent?: number;
   expanded: boolean;
   onToggle: () => void;
+  tagColorMap?: Record<string, string>;
 }) {
   const navigate = useNavigate();
   const hasChildren = ticket.child_count > 0;
@@ -161,6 +165,19 @@ function TicketRow({
             <Chip label="更新" size="small" color="info" variant="outlined" sx={{ ml: 0.5, height: 20, fontSize: 11 }} />
           </Tooltip>
         )}
+      </TableCell>
+      <TableCell>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+          {ticket.custom_tags?.map((tag) => (
+            <Chip
+              key={tag}
+              label={tag}
+              size="small"
+              color={(tagColorMap[tag] ?? "default") as "default" | "primary" | "info" | "success" | "warning" | "error" | "secondary"}
+              sx={{ height: 20, fontSize: 11 }}
+            />
+          ))}
+        </Box>
       </TableCell>
       <TableCell><PriorityChip priority={ticket.priority_name} /></TableCell>
       <TableCell>{ticket.assignee_name ?? "未割当"}</TableCell>
@@ -235,6 +252,12 @@ export default function TicketTable({
   onChange,
   isLoading,
 }: Props) {
+  const { data: ticketTags } = useTicketTags();
+  const tagColorMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    ticketTags?.forEach((t) => { map[t.name] = t.color; });
+    return map;
+  }, [ticketTags]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const currentOrdering = filters.ordering ?? "";
   const orderDir = currentOrdering.startsWith("-") ? "desc" : "asc";
@@ -303,6 +326,7 @@ export default function TicketTable({
                     ticket={ticket}
                     expanded={expanded.has(ticket.id)}
                     onToggle={() => toggle(ticket.id)}
+                    tagColorMap={tagColorMap}
                   />
                   {expanded.has(ticket.id) && ticket.child_count > 0 && (
                     <ChildRows parentId={ticket.id} filters={filters} />

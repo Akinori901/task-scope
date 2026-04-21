@@ -178,6 +178,9 @@ class Ticket(models.Model):
     is_watched = models.BooleanField(default=False, db_index=True)
     stagnant_days = models.PositiveIntegerField(default=0)
 
+    # 次工程タグ（ユーザー定義）
+    custom_tags = models.JSONField(default=list, blank=True, help_text="次工程タグ名リスト")
+
     # 親子関係
     parent_ticket = models.ForeignKey(
         "self",
@@ -377,3 +380,17 @@ class TicketEvaluation(models.Model):
         return f"Evaluation for {self.ticket.issue_key}"
 
 
+class TicketTag(models.Model):
+    """ユーザー定義の次工程タグ"""
+
+    name = models.CharField(max_length=50, unique=True)
+    color = models.CharField(max_length=20, default="default")
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "ticket_tags"
+        ordering = ["sort_order", "name"]
+
+    def __str__(self) -> str:
+        return self.name

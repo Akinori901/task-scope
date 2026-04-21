@@ -1,7 +1,7 @@
 from django.db.models import Count
 from rest_framework import serializers
 
-from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, Project, Ticket, TicketEvaluation
+from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, Project, Ticket, TicketEvaluation, TicketTag
 
 
 class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):
@@ -209,6 +209,7 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
             "needs_re_evaluation",
             "new_comment_count",
             "spec_readiness",
+            "custom_tags",
         ]
 
     def get_child_count(self, obj: Ticket) -> int:
@@ -344,3 +345,10 @@ class DashboardStatsSerializer(serializers.Serializer[dict[str, object]]):
     status_distribution = StatusDistributionSerializer(many=True)
     assignee_workload = AssigneeWorkloadSerializer(many=True)
     last_synced_at = serializers.DateTimeField(allow_null=True)
+
+
+class TicketTagSerializer(serializers.ModelSerializer[TicketTag]):
+    class Meta:
+        model = TicketTag
+        fields = ["id", "name", "color", "sort_order", "created_at"]
+        read_only_fields = ["created_at"]

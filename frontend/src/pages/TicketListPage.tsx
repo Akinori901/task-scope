@@ -20,7 +20,8 @@ import {
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { TicketQueryParams, UnpostedSpec } from "../api/client";
 import { bulkPostComments, deleteComment, exportTicketsCsv, fetchUnpostedSpecs } from "../api/client";
 import TicketFilters from "../components/TicketFilters";
@@ -32,17 +33,68 @@ import { useMilestoneNames } from "../hooks/useMilestoneNames";
 import { useProjects } from "../hooks/useProjects";
 import { useStatusNames } from "../hooks/useStatusNames";
 import { useUsers } from "../hooks/useUsers";
+import { useTicketTags } from "../hooks/useTicketTags";
+
+/** URLクエリパラメータからフィルターを復元 */
+function filtersFromSearchParams(sp: URLSearchParams, defaultOrdering: string): TicketQueryParams {
+  const f: TicketQueryParams = {
+    ordering: sp.get("ordering") ?? defaultOrdering,
+    page: sp.has("page") ? Number(sp.get("page")) : 1,
+  };
+  if (sp.get("search")) f.search = sp.get("search")!;
+  if (sp.get("project")) f.project = Number(sp.get("project"));
+  if (sp.get("status_name")) f.status_name = sp.get("status_name")!;
+  if (sp.get("assignee")) f.assignee = Number(sp.get("assignee"));
+  if (sp.get("category")) f.category = sp.get("category")!;
+  if (sp.get("milestone")) f.milestone = sp.get("milestone")!;
+  if (sp.get("is_overdue")) f.is_overdue = true;
+  if (sp.get("is_stagnant")) f.is_stagnant = true;
+  if (sp.get("is_watched")) f.is_watched = true;
+  if (sp.get("custom_tag")) f.custom_tag = sp.get("custom_tag")!;
+  return f;
+}
+
+/** フィルターをURLクエリパラメータに変換 */
+function filtersToSearchParams(filters: TicketQueryParams, excludeCompleted: boolean): URLSearchParams {
+  const sp = new URLSearchParams();
+  if (filters.search) sp.set("search", filters.search);
+  if (filters.project) sp.set("project", String(filters.project));
+  if (filters.status_name) sp.set("status_name", filters.status_name);
+  if (filters.assignee) sp.set("assignee", String(filters.assignee));
+  if (filters.category) sp.set("category", filters.category);
+  if (filters.milestone) sp.set("milestone", filters.milestone);
+  if (filters.is_overdue) sp.set("is_overdue", "1");
+  if (filters.is_stagnant) sp.set("is_stagnant", "1");
+  if (filters.is_watched) sp.set("is_watched", "1");
+  if (filters.custom_tag) sp.set("custom_tag", filters.custom_tag);
+  if (filters.ordering && filters.ordering !== "-backlog_updated") sp.set("ordering", filters.ordering);
+  if (filters.page && filters.page > 1) sp.set("page", String(filters.page));
+  if (!excludeCompleted) sp.set("show_completed", "1");
+  return sp;
+}
 
 export default function TicketListPage() {
   const viewMode = useViewStore((s) => s.viewMode);
   const spaceId = useViewStore((s) => s.spaceId);
   const spaceFilter = parseSpaceId(spaceId);
-  const [excludeCompleted, setExcludeCompleted] = useState(true);
-  const [filters, setFilters] = useState<TicketQueryParams>({
-    view: viewMode,
-    ordering: "-backlog_updated",
-    page: 1,
-  });
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const filters = useMemo(() => filtersFromSearchParams(searchParams, "-backlog_updated"), [searchParams]);
+  const excludeCompleted = !searchParams.has("show_completed");
+
+  const setFilters = useCallback(
+    (next: TicketQueryParams) => {
+      setSearchParams(filtersToSearchParams(next, excludeCompleted), { replace: true });
+    },
+    [setSearchParams, excludeCompleted],
+  );
+
+  const setExcludeCompleted = useCallback(
+    (val: boolean) => {
+      setSearchParams(filtersToSearchParams(filters, val), { replace: true });
+    },
+    [setSearchParams, filters],
+  );
 
   const mergedFilters = {
     ...filters,
@@ -57,6 +109,7 @@ export default function TicketListPage() {
   const { data: statusNames } = useStatusNames();
   const { data: categoryNames } = useCategoryNames();
   const { data: milestoneNames } = useMilestoneNames();
+  const { data: ticketTags } = useTicketTags();
   const { data: unpostedSpecs } = useQuery({
     queryKey: ["unposted-specs"],
     queryFn: () => fetchUnpostedSpecs().then((r: { data: unknown }) => r.data),
@@ -85,6 +138,7 @@ export default function TicketListPage() {
           statusNames={statusNames ?? []}
           categoryNames={categoryNames ?? []}
           milestoneNames={milestoneNames ?? []}
+          ticketTags={ticketTags ?? []}
         />
         <FormControlLabel
           control={
@@ -92,7 +146,6 @@ export default function TicketListPage() {
               checked={excludeCompleted}
               onChange={(e: { target: { checked: boolean } }) => {
                 setExcludeCompleted(e.target.checked);
-                setFilters({ ...filters, page: 1 });
               }}
               size="small"
             />

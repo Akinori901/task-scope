@@ -14,6 +14,7 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
     status_name = django_filters.CharFilter(method="filter_status_name")
     category = django_filters.CharFilter(method="filter_category")
     milestone = django_filters.CharFilter(method="filter_milestone")
+    custom_tag = django_filters.CharFilter(method="filter_custom_tag")
     is_root = django_filters.BooleanFilter(method="filter_is_root")
     parent_id = django_filters.NumberFilter(field_name="parent_ticket_id")
 
@@ -66,6 +67,11 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
     def filter_milestone(self, queryset, name, value):  # type: ignore[no-untyped-def]
         if value:
             return queryset.filter(milestone_names__contains=[value])
+        return queryset
+
+    def filter_custom_tag(self, queryset, name, value):  # type: ignore[no-untyped-def]
+        if value:
+            return queryset.filter(custom_tags__contains=[value])
         return queryset
 
     def filter_is_root(self, queryset, name, value):  # type: ignore[no-untyped-def]

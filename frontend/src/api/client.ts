@@ -18,6 +18,8 @@ import type {
   TicketComment,
   TicketDetail,
   TicketEvaluation,
+  TicketTag,
+  TicketTagInput,
   ViewMode,
 } from "./types";
 
@@ -59,6 +61,7 @@ export interface TicketQueryParams {
   is_overdue?: boolean;
   is_stagnant?: boolean;
   is_watched?: boolean;
+  custom_tag?: string;
   is_root?: boolean;
   parent_id?: number;
   exclude_completed?: boolean;
@@ -266,6 +269,23 @@ export const updateRepository = (id: number, data: Partial<CodeRepositoryInput>)
 
 export const deleteRepository = (id: number) =>
   apiClient.delete(`/repositories/${id}/`);
+
+// --- Ticket Tags ---
+
+export const fetchTicketTags = () =>
+  apiClient.get<TicketTag[]>("/ticket-tags/");
+
+export const createTicketTag = (data: TicketTagInput) =>
+  apiClient.post<TicketTag>("/ticket-tags/", data);
+
+export const updateTicketTag = (id: number, data: Partial<TicketTagInput>) =>
+  apiClient.patch<TicketTag>(`/ticket-tags/${id}/`, data);
+
+export const deleteTicketTag = (id: number) =>
+  apiClient.delete(`/ticket-tags/${id}/`);
+
+export const updateTicketCustomTags = (ticketId: number, tags: string[]) =>
+  apiClient.patch<{ custom_tags: string[] }>(`/tickets/${ticketId}/custom-tags/`, { custom_tags: tags });
 
 // --- Directory Browser ---
 

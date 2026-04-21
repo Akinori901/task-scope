@@ -193,7 +193,7 @@ export default function GanttPage() {
           onClick={async () => {
             setExporting(true);
             try {
-              await exportGanttExcel(displayedMilestones, timelineStart);
+              await exportGanttExcel(displayedMilestones, timelineStart, mergedFilters);
             } finally {
               setExporting(false);
             }

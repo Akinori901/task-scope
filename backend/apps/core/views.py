@@ -21,7 +21,7 @@ _bg_tasks: dict[str, dict] = {}
 _bg_tasks_lock = threading.Lock()
 
 from apps.core.filters import TicketFilter
-from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, PinnedTicket, Project, Ticket
+from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, PinnedTicket, Project, Ticket, TicketTag
 
 from apps.core.serializers import (
     BacklogSpaceSerializer,
@@ -36,6 +36,7 @@ from apps.core.serializers import (
     TicketDetailSerializer,
     TicketEvaluationSerializer,
     TicketSerializer,
+    TicketTagSerializer,
 )
 import httpx as _httpx
 from django.conf import settings as _settings
@@ -923,11 +924,11 @@ class GanttMilestoneListView(APIView):
         # --- マイルストーン別に集計 ---
         stats_by_name: dict[str, dict[str, int]] = {}
         for name in ms_names:
-            stats_by_name[name] = {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0}
+            stats_by_name[name] = {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0, "overdue": 0}
 
         for ticket in (
             tickets_qs.filter(ms_q)
-            .only("id", "status_name", "is_stagnant", "milestone_names")
+            .only("id", "status_name", "is_stagnant", "is_overdue", "milestone_names")
             .iterator()
         ):
             for name in ticket.milestone_names or []:
@@ -937,6 +938,8 @@ class GanttMilestoneListView(APIView):
                 s["total"] += 1
                 if ticket.status_name in completed_names:
                     s["completed"] += 1
+                elif ticket.is_overdue:
+                    s["overdue"] += 1
                 elif ticket.status_name in NOT_STARTED_STATUS_NAMES:
                     s["not_started"] += 1
                 elif ticket.is_stagnant:
@@ -947,7 +950,7 @@ class GanttMilestoneListView(APIView):
         # --- レスポンス構築 ---
         result = []
         for ms in milestones:
-            s = stats_by_name.get(ms.name, {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0})
+            s = stats_by_name.get(ms.name, {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0, "overdue": 0})
             rate = round(s["completed"] / s["total"] * 100, 1) if s["total"] > 0 else 0.0
             result.append({
                 "id": ms.id,
@@ -1078,3 +1081,38 @@ class BrowseDirsView(APIView):
                 {"error": "ディレクトリ一覧の取得に失敗しました"},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+
+class TicketTagListCreateView(generics.ListCreateAPIView[TicketTag]):
+    """次工程タグ一覧・作成 API"""
+
+    serializer_class = TicketTagSerializer
+    queryset = TicketTag.objects.all()
+    pagination_class = None
+
+
+class TicketTagDetailView(generics.RetrieveUpdateDestroyAPIView[TicketTag]):
+    """次工程タグ詳細・更新・削除 API"""
+
+    serializer_class = TicketTagSerializer
+    queryset = TicketTag.objects.all()
+
+
+class TicketUpdateCustomTagsView(APIView):
+    """チケットの次工程タグ更新 API"""
+
+    def patch(self, request: Request, pk: int) -> Response:
+        try:
+            ticket = Ticket.objects.get(pk=pk)
+        except Ticket.DoesNotExist:
+            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        tags = request.data.get("custom_tags")
+        if tags is None:
+            return Response({"error": "custom_tags is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            return Response({"error": "custom_tags must be a list of strings"}, status=status.HTTP_400_BAD_REQUEST)
+
+        ticket.custom_tags = tags
+        ticket.save(update_fields=["custom_tags"])
+        return Response({"custom_tags": ticket.custom_tags})

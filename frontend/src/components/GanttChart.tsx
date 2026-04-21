@@ -7,11 +7,13 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import React, { useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { TicketQueryParams } from "../api/client";
 import type { GanttMilestone, Ticket } from "../api/types";
+import { useTicketDescription } from "../hooks/useTicketDescription";
 import { useTickets } from "../hooks/useTickets";
+import { parseScheduleTable } from "../utils/parseScheduleTable";
 
 // ---- constants ----
 const W = 24; // week column width in px
@@ -121,6 +123,7 @@ function GanttTicketRow({
   hasChildren,
   isExpanded,
   onToggle,
+  isVirtual,
 }: {
   ticket: Ticket;
   weeks: Week[];
@@ -128,6 +131,7 @@ function GanttTicketRow({
   hasChildren: boolean;
   isExpanded: boolean;
   onToggle?: () => void;
+  isVirtual?: boolean;
 }) {
   const navigate = useNavigate();
   const bar = ticket.start_date && ticket.due_date ? barCols(ticket.start_date, ticket.due_date, weeks) : null;
@@ -136,9 +140,9 @@ function GanttTicketRow({
 
   return (
     <tr
-      style={{ cursor: "pointer" }}
-      onClick={() => navigate(`/tickets/${ticket.id}`)}
-      onMouseDown={(e) => {
+      style={{ cursor: isVirtual ? "default" : "pointer" }}
+      onClick={isVirtual ? undefined : () => navigate(`/tickets/${ticket.id}`)}
+      onMouseDown={isVirtual ? undefined : (e) => {
         if (e.button === 1) {
           e.preventDefault();
           window.open(`/tickets/${ticket.id}`, "_blank");
@@ -218,6 +222,7 @@ function GanttTicketRow({
               width: `${((bar.endCol - bar.startCol) / weeks.length) * 100}%`,
               height: TICKET_BAR_H,
               background: barColor,
+              border: isVirtual ? `1px dashed rgba(255,255,255,0.3)` : undefined,
               borderRadius: 2,
             }}
           />
@@ -227,7 +232,99 @@ function GanttTicketRow({
   );
 }
 
-// ---- Child ticket rows (fetched on demand) ----
+// ---- Schedule rows parsed from description ----
+function ScheduleRows({
+  ticket,
+  weeks,
+  onEmpty,
+  indent = 2,
+}: {
+  ticket: Ticket;
+  weeks: Week[];
+  onEmpty?: () => void;
+  indent?: number;
+}) {
+  const { data: description, isLoading } = useTicketDescription(ticket.id, true);
+  const rows = useMemo(
+    () => (description ? parseScheduleTable(description, ticket.start_date, ticket.due_date) : []),
+    [description, ticket.start_date, ticket.due_date],
+  );
+
+  // Notify parent once when no schedule rows exist (hides expand arrow and auto-collapses).
+  // onEmpty is stable via useCallback; ref ensures single invocation regardless.
+  const emptyNotified = React.useRef(false);
+  React.useEffect(() => {
+    if (!isLoading && rows.length === 0 && !emptyNotified.current) {
+      emptyNotified.current = true;
+      onEmpty?.();
+    }
+  }, [isLoading, rows.length, onEmpty]);
+
+  if (isLoading || rows.length === 0) return null;
+
+  return (
+    <>
+      {rows.map((row, idx) => {
+        const isCompleted = row.status_name === "完了" || row.status_name === "Done" || row.status_name === "Closed";
+        const isOverdue = !isCompleted && !!row.due_date && new Date(row.due_date) < new Date(new Date().toDateString());
+        const virtualTicket = {
+          id: -(ticket.id * 1000 + idx),
+          backlog_id: 0,
+          issue_key: row.assignee_name ? `詳細Task｜担当：${row.assignee_name}` : "詳細Task",
+          summary: row.summary,
+          issue_type: "",
+          status_name: row.status_name,
+          status_id: 0,
+          priority_name: "",
+          priority_id: 0,
+          assignee: null,
+          assignee_name: row.assignee_name,
+          parent_ticket_id: ticket.id,
+          parent_ticket_key: ticket.issue_key,
+          child_count: 0,
+          project_key: "",
+          project_name: "",
+          start_date: row.start_date,
+          due_date: row.due_date,
+          estimated_hours: null,
+          actual_hours: null,
+          comment_count: 0,
+          last_comment_at: null,
+          backlog_created: "",
+          backlog_updated: "",
+          is_overdue: isOverdue,
+          is_stagnant: false,
+          is_watched: false,
+          stagnant_days: 0,
+          custom_tags: [],
+          previous_status_name: null,
+          status_changed_at: null,
+          source_type: "backlog" as const,
+          external_url: null,
+          has_evaluation: false,
+          has_spec: false,
+          needs_re_evaluation: false,
+          new_comment_count: 0,
+          spec_readiness: null,
+        } satisfies Ticket;
+
+        return (
+          <GanttTicketRow
+            key={virtualTicket.id}
+            ticket={virtualTicket}
+            weeks={weeks}
+            indent={indent}
+            hasChildren={false}
+            isExpanded={false}
+            isVirtual
+          />
+        );
+      })}
+    </>
+  );
+}
+
+// ---- Child ticket rows (fetched on demand, with schedule expansion) ----
 function ChildTicketRows({
   parentId,
   filters,
@@ -237,6 +334,8 @@ function ChildTicketRows({
   filters: TicketQueryParams;
   weeks: Week[];
 }) {
+  const [expandedChildren, setExpandedChildren] = useState<Set<number>>(new Set());
+  const [noScheduleChildren, setNoScheduleChildren] = useState<Set<number>>(new Set());
   const { data, isLoading } = useTickets({
     ...filters,
     parent_id: parentId,
@@ -245,6 +344,23 @@ function ChildTicketRows({
     page: 1,
     ordering: "due_date",
   });
+
+  const toggleChild = (id: number) => {
+    setExpandedChildren((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  // Mark child as having no schedule, auto-collapse
+  const handleChildNoSchedule = useCallback(
+    (childId: number) => () => {
+      setNoScheduleChildren((prev) => new Set(prev).add(childId));
+      setExpandedChildren((prev) => { const n = new Set(prev); n.delete(childId); return n; });
+    },
+    [],
+  );
 
   if (isLoading) {
     return (
@@ -261,9 +377,30 @@ function ChildTicketRows({
 
   return (
     <>
-      {(data?.results ?? []).map((child: Ticket) => (
-        <GanttTicketRow key={child.id} ticket={child} weeks={weeks} indent={2} hasChildren={false} isExpanded={false} />
-      ))}
+      {(data?.results ?? []).map((child: Ticket) => {
+        const hasExpandable = !noScheduleChildren.has(child.id);
+        const isExp = expandedChildren.has(child.id);
+        return (
+          <React.Fragment key={child.id}>
+            <GanttTicketRow
+              ticket={child}
+              weeks={weeks}
+              indent={2}
+              hasChildren={hasExpandable}
+              isExpanded={isExp}
+              onToggle={hasExpandable ? () => toggleChild(child.id) : undefined}
+            />
+            {isExp && (
+              <ScheduleRows
+                ticket={child}
+                weeks={weeks}
+                onEmpty={handleChildNoSchedule(child.id)}
+                indent={3}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
     </>
   );
 }
@@ -279,6 +416,8 @@ function TicketRows({
   weeks: Week[];
 }) {
   const [expandedTickets, setExpandedTickets] = useState<Set<number>>(new Set());
+  // Track tickets whose description has no schedule table (to hide expand arrow)
+  const [noSchedule, setNoSchedule] = useState<Set<number>>(new Set());
   const { data, isLoading } = useTickets({
     ...filters,
     milestone: milestoneName,
@@ -294,6 +433,18 @@ function TicketRows({
       return n;
     });
   };
+
+  // Stable callback: mark ticket as having no schedule table.
+  // If the ticket also has no real children, auto-collapse and hide the arrow.
+  const handleNoSchedule = useCallback(
+    (ticketId: number, hasRealChildren: boolean) => () => {
+      setNoSchedule((prev) => new Set(prev).add(ticketId));
+      if (!hasRealChildren) {
+        setExpandedTickets((prev) => { const n = new Set(prev); n.delete(ticketId); return n; });
+      }
+    },
+    [],
+  );
 
   if (isLoading) {
     return (
@@ -323,6 +474,7 @@ function TicketRows({
     <>
       {tickets.map((t: Ticket) => {
         const hasChildren = t.child_count > 0;
+        const hasExpandable = hasChildren || !noSchedule.has(t.id);
         const isExp = expandedTickets.has(t.id);
         return (
           <React.Fragment key={t.id}>
@@ -330,12 +482,21 @@ function TicketRows({
               ticket={t}
               weeks={weeks}
               indent={1}
-              hasChildren={hasChildren}
+              hasChildren={hasExpandable}
               isExpanded={isExp}
-              onToggle={() => toggleTicket(t.id)}
+              onToggle={hasExpandable ? () => toggleTicket(t.id) : undefined}
             />
-            {isExp && hasChildren && (
-              <ChildTicketRows parentId={t.id} filters={filters} weeks={weeks} />
+            {isExp && (
+              <>
+                {hasChildren && (
+                  <ChildTicketRows parentId={t.id} filters={filters} weeks={weeks} />
+                )}
+                <ScheduleRows
+                  ticket={t}
+                  weeks={weeks}
+                  onEmpty={handleNoSchedule(t.id, hasChildren)}
+                />
+              </>
             )}
           </React.Fragment>
         );
@@ -564,6 +725,7 @@ function MilestoneSection({
               <span style={{ color: "#78909c" }}>未着手</span>｜{stats.not_started}件{" "}
               <span style={{ color: "#42a5f5" }}>進行中</span>｜{stats.in_progress}件{" "}
               <span style={{ color: "#388e3c" }}>完了</span>｜{stats.completed}件
+              {stats.overdue > 0 && <>{" "}<span style={{ color: "#e53935" }}>遅延</span>｜{stats.overdue}件</>}
               {stats.stagnant > 0 && <>{" "}<span style={{ color: "#ffa726" }}>停滞</span>｜{stats.stagnant}件</>}
             </Box>
           </Box>
@@ -628,6 +790,7 @@ function MilestoneSection({
                   <>
                     {stats.completed > 0 && <div style={{ width: `${(stats.completed / stats.total) * 100}%`, background: "#388e3c" }} />}
                     {stats.in_progress > 0 && <div style={{ width: `${(stats.in_progress / stats.total) * 100}%`, background: "#42a5f5" }} />}
+                    {stats.overdue > 0 && <div style={{ width: `${(stats.overdue / stats.total) * 100}%`, background: "#e53935" }} />}
                     {stats.stagnant > 0 && <div style={{ width: `${(stats.stagnant / stats.total) * 100}%`, background: "#ffa726" }} />}
                     {stats.not_started > 0 && <div style={{ width: `${(stats.not_started / stats.total) * 100}%`, background: "#78909c" }} />}
                   </>

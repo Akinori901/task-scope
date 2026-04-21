@@ -75,6 +75,7 @@ export interface Ticket {
   is_stagnant: boolean;
   is_watched: boolean;
   stagnant_days: number;
+  custom_tags: string[];
   previous_status_name: string | null;
   status_changed_at: string | null;
   source_type: "backlog" | "jira";
@@ -155,6 +156,7 @@ export interface GanttMilestoneStats {
   in_progress: number;
   not_started: number;
   stagnant: number;
+  overdue: number;
   completion_rate: number;
 }
 
@@ -264,6 +266,20 @@ export interface PaginatedResponse<T> {
   next: string | null;
   previous: string | null;
   results: T[];
+}
+
+export interface TicketTag {
+  id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface TicketTagInput {
+  name: string;
+  color?: string;
+  sort_order?: number;
 }
 
 export type ViewMode = "all" | "my";

@@ -71,6 +71,7 @@ import {
   useUpdateComment,
   useUpdateCommentTags,
 } from "../hooks/useTicketDetail";
+import { useTicketTags, useUpdateTicketCustomTags } from "../hooks/useTicketTags";
 import { useViewStore } from "../stores/viewStore";
 
 const READINESS_LABELS = {
@@ -112,6 +113,8 @@ export default function TicketDetailPage() {
   const createMutation = useCreateComment(ticketId);
   const deleteMutation = useDeleteComment(ticketId);
   const editMutation = useUpdateComment(ticketId);
+  const { data: ticketTagDefs } = useTicketTags();
+  const customTagsMutation = useUpdateTicketCustomTags(ticketId);
   const queryClient = useQueryClient();
   const { data: pinnedTickets } = useQuery({
     queryKey: ["pinned-tickets"],
@@ -265,6 +268,31 @@ export default function TicketDetailPage() {
             color="warning"
             size="small"
           />
+        )}
+        {ticketTagDefs && ticketTagDefs.length > 0 && (
+          <>
+            <Box sx={{ borderLeft: 1, borderColor: "divider", height: 24, mx: 0.5 }} />
+            {ticketTagDefs.map((tagDef) => {
+              const active = ticket.custom_tags?.includes(tagDef.name);
+              return (
+                <Chip
+                  key={tagDef.id}
+                  label={tagDef.name}
+                  size="small"
+                  color={(active ? tagDef.color : "default") as "default" | "primary" | "info" | "success" | "warning" | "error" | "secondary"}
+                  variant={active ? "filled" : "outlined"}
+                  onClick={() => {
+                    const current = ticket.custom_tags ?? [];
+                    const next = active
+                      ? current.filter((t: string) => t !== tagDef.name)
+                      : [...current, tagDef.name];
+                    customTagsMutation.mutate(next);
+                  }}
+                  sx={{ cursor: "pointer" }}
+                />
+              );
+            })}
+          </>
         )}
         <Tooltip title={currentPin ? "ピン解除" : "ピン留め"}>
           <IconButton

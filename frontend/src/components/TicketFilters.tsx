@@ -8,8 +8,9 @@ import {
   Select,
   TextField,
 } from "@mui/material";
+import { useEffect, useRef, useState } from "react";
 import type { TicketQueryParams } from "../api/client";
-import type { BacklogUser, Project } from "../api/types";
+import type { BacklogUser, Project, TicketTag } from "../api/types";
 
 interface Props {
   filters: TicketQueryParams;
@@ -19,6 +20,7 @@ interface Props {
   statusNames?: string[];
   categoryNames?: string[];
   milestoneNames?: string[];
+  ticketTags?: TicketTag[];
 }
 
 export default function TicketFilters({
@@ -29,19 +31,40 @@ export default function TicketFilters({
   statusNames = [],
   categoryNames = [],
   milestoneNames = [],
+  ticketTags = [],
 }: Props) {
   // status_name はカンマ区切り文字列 ↔ string[] で変換
   const selectedStatuses: string[] = filters.status_name
     ? filters.status_name.split(",").map((s) => s.trim())
     : [];
 
+  // IME 変換中でも壊れないよう、検索テキストはローカルステートで管理
+  const [searchText, setSearchText] = useState(filters.search ?? "");
+  const composingRef = useRef(false);
+
+  // 外部からフィルターがリセットされた場合にローカルステートも同期
+  useEffect(() => {
+    setSearchText(filters.search ?? "");
+  }, [filters.search]);
+
   return (
     <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 2 }}>
       <TextField
         label="検索"
         size="small"
-        value={filters.search ?? ""}
-        onChange={(e) => onChange({ ...filters, search: e.target.value || undefined, page: 1 })}
+        value={searchText}
+        onChange={(e) => {
+          setSearchText(e.target.value);
+          if (!composingRef.current) {
+            onChange({ ...filters, search: e.target.value || undefined, page: 1 });
+          }
+        }}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={(e) => {
+          composingRef.current = false;
+          const value = (e.target as HTMLInputElement).value;
+          onChange({ ...filters, search: value || undefined, page: 1 });
+        }}
         sx={{ minWidth: 200 }}
       />
 
@@ -158,6 +181,30 @@ export default function TicketFilters({
           ))}
         </Select>
       </FormControl>
+
+      {ticketTags.length > 0 && (
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel>次工程</InputLabel>
+          <Select
+            value={filters.custom_tag ?? ""}
+            label="次工程"
+            onChange={(e) =>
+              onChange({
+                ...filters,
+                custom_tag: e.target.value || undefined,
+                page: 1,
+              })
+            }
+          >
+            <MenuItem value="">すべて</MenuItem>
+            {ticketTags.map((t) => (
+              <MenuItem key={t.id} value={t.name}>
+                {t.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      )}
 
       <FormControl size="small" sx={{ minWidth: 120 }}>
         <InputLabel>状態</InputLabel>
