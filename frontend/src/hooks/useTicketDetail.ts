@@ -4,6 +4,7 @@ import {
   deleteComment,
   evaluateTicket,
   fetchTicketDetail,
+  generateQa,
   generateSpec,
   postCommentToBacklog,
   updateComment,
@@ -32,6 +33,17 @@ export const useGenerateSpec = (id: number) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => generateSpec(id).then((r) => r.data),
+    onSuccess: () => {
+      // バックグラウンドタスクのポーリングを開始
+      queryClient.invalidateQueries({ queryKey: ["background-tasks"] });
+    },
+  });
+};
+
+export const useGenerateQa = (id: number) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => generateQa(id).then((r) => r.data),
     onSuccess: () => {
       // バックグラウンドタスクのポーリングを開始
       queryClient.invalidateQueries({ queryKey: ["background-tasks"] });

@@ -119,19 +119,32 @@ export const fetchTicketDetail = (id: number) =>
 export const evaluateTicket = (id: number) =>
   apiClient.post<TicketEvaluation>(`/tickets/${id}/evaluate/`);
 
+export interface QaItem {
+  category: string;
+  precondition: string;
+  steps: string;
+  expected: string;
+  note?: string;
+}
+
 export interface BackgroundTask {
   task_id: string;
   status: "running" | "completed" | "failed";
+  task_type?: "spec" | "qa";
   ticket_id: number;
   issue_key: string;
   summary?: string;
   started_at?: string;
   comment_id?: number;
+  qa_items?: QaItem[];
   error?: string;
 }
 
 export const generateSpec = (id: number) =>
   apiClient.post<{ task_id: string; status: string }>(`/tickets/${id}/generate-spec/`);
+
+export const generateQa = (id: number) =>
+  apiClient.post<{ task_id: string; status: string }>(`/tickets/${id}/generate-qa/`);
 
 export const fetchBackgroundTasks = () =>
   apiClient.get<BackgroundTask[]>("/tasks/");

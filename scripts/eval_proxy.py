@@ -19,11 +19,30 @@ import json
 import shutil
 import subprocess
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from enum import IntEnum
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 CLAUDE_PATH = shutil.which("claude") or "claude"
 DEFAULT_MODEL = "sonnet"
+
+
+class ProxyTimeout(IntEnum):
+    """Claude CLI 呼び出し（subprocess）のタイムアウト秒数。
+
+    MAX 生成時間 = 10 分。コメントが多い/長文のチケットでは生成が数分かかるため
+    余裕を持たせる。**backend 側（evaluation_service.HttpTimeout）より必ず小さくすること**。
+    backend が proxy より先にタイムアウトすると、proxy 上で claude が孤児化する。
+    """
+
+    # cwd なし（テキストのみ生成）
+    TEXT = 600  # 10 分
+    # cwd あり（コードベース探索: Read/Glob/Grep, 最大25ターン）
+    CODE_EXPLORATION = 600  # 10 分
+
+    @classmethod
+    def for_request(cls, cwd: str | None) -> int:
+        return int(cls.CODE_EXPLORATION if cwd else cls.TEXT)
 
 
 def call_claude(prompt: str, model: str = DEFAULT_MODEL, max_tokens: int = 4096, cwd: str | None = None) -> str:
@@ -39,7 +58,7 @@ def call_claude(prompt: str, model: str = DEFAULT_MODEL, max_tokens: int = 4096,
     if cwd:
         cmd.extend(["--allowedTools", "Read,Glob,Grep", "--max-turns", "25"])
 
-    timeout = 600 if cwd else 300
+    timeout = ProxyTimeout.for_request(cwd)
 
     result = subprocess.run(
         cmd,
@@ -110,6 +129,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._handle_prompt(prompt, model, max_tokens, cwd)
         elif self.path == "/generate-spec":
             self._handle_prompt(prompt, model, max_tokens, cwd)
+        elif self.path == "/generate-qa":
+            self._handle_prompt(prompt, model, max_tokens, cwd)
         else:
             self._respond(404, {"error": "Not found"})
 
@@ -168,7 +189,11 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=19001, help="Listen port (default: 19001)")
     args = parser.parse_args()
 
-    server = HTTPServer(("0.0.0.0", args.port), ProxyHandler)
+    # ThreadingHTTPServer: 各リクエストを別スレッドで処理する。
+    # Claude CLI 呼び出しは数十秒〜数分かかるため、シングルスレッドだと
+    # 並行リクエスト（QA生成 + 方針書生成 + 評価など）が直列化し、
+    # Docker の host.docker.internal ゲートウェイが 504 で打ち切る。
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), ProxyHandler)
     print(f"[eval-proxy] Listening on port {args.port}")
     print(f"[eval-proxy] Claude CLI: {CLAUDE_PATH}")
     print(f"[eval-proxy] Default model: {DEFAULT_MODEL}")

@@ -87,9 +87,15 @@ export default function BackgroundTaskBar() {
             sx={{ mb: 1 }}
           >
             <Typography variant="body2">
-              {task.status === "running" && `方針書生成中: ${task.issue_key} ${task.summary ?? ""}`}
-              {task.status === "completed" && `方針書生成完了: ${task.issue_key}`}
-              {task.status === "failed" && `方針書生成失敗: ${task.issue_key}`}
+              {(() => {
+                const label = task.task_type === "qa" ? "QA項目生成" : "方針書生成";
+                if (task.status === "running") return `${label}中: ${task.issue_key} ${task.summary ?? ""}`;
+                if (task.status === "completed")
+                  return task.task_type === "qa"
+                    ? `QA項目生成完了: ${task.issue_key}（Excelをダウンロードしました）`
+                    : `${label}完了: ${task.issue_key}`;
+                return `${label}失敗: ${task.issue_key}`;
+              })()}
             </Typography>
             {task.status === "failed" && task.error && (
               <Typography variant="caption" sx={{ display: "block", mt: 0.5, whiteSpace: "pre-wrap" }}>
