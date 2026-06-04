@@ -15,6 +15,7 @@ import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import GavelIcon from "@mui/icons-material/Gavel";
 import PushPinIcon from "@mui/icons-material/PushPin";
 import GradingIcon from "@mui/icons-material/Grading";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import SendIcon from "@mui/icons-material/Send";
@@ -52,11 +53,12 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PinnedTicketData } from "../api/client";
-import { fetchPinnedTickets, pinTicket, unpinTicket } from "../api/client";
+import type { BackgroundTask, PinnedTicketData } from "../api/client";
+import { fetchBackgroundTasks, fetchPinnedTickets, pinTicket, unpinTicket } from "../api/client";
+import { exportQaExcel } from "../utils/exportQaExcel";
 import type { CustomField, TicketComment } from "../api/types";
 import DifficultyRadarChart from "../components/DifficultyRadarChart";
 import PriorityChip from "../components/PriorityChip";
@@ -65,6 +67,7 @@ import {
   useCreateComment,
   useDeleteComment,
   useEvaluateTicket,
+  useGenerateQa,
   useGenerateSpec,
   usePostCommentToBacklog,
   useTicketDetail,
@@ -108,6 +111,7 @@ export default function TicketDetailPage() {
   const { data: ticket, isLoading, error } = useTicketDetail(ticketId);
   const evalMutation = useEvaluateTicket(ticketId);
   const specMutation = useGenerateSpec(ticketId);
+  const qaMutation = useGenerateQa(ticketId);
   const postMutation = usePostCommentToBacklog(ticketId);
   const tagsMutation = useUpdateCommentTags(ticketId);
   const createMutation = useCreateComment(ticketId);
@@ -146,6 +150,50 @@ export default function TicketDetailPage() {
   const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
   const [postingCommentId, setPostingCommentId] = useState<number | null>(null);
 
+  // QA 生成タスクの完了を監視し、完了したら Excel を自動ダウンロードする
+  const { data: bgTasks } = useQuery({
+    queryKey: ["background-tasks"],
+    queryFn: () => fetchBackgroundTasks().then((r: { data: BackgroundTask[] }) => r.data),
+    refetchInterval: (query) => {
+      const data = query.state.data as BackgroundTask[] | undefined;
+      return data?.some((t) => t.status === "running") ? 3000 : false;
+    },
+  });
+  // 生成完了した QA 項目を保持し、手動で再ダウンロードできるようにする
+  // （バックグラウンド完了後の自動DLはブラウザにブロックされることがあるため）
+  const [pendingQaDownload, setPendingQaDownload] = useState<{
+    issueKey: string;
+    summary: string;
+    items: NonNullable<BackgroundTask["qa_items"]>;
+  } | null>(null);
+  const downloadedQaTasks = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!bgTasks) return;
+    for (const task of bgTasks) {
+      if (
+        task.task_type === "qa" &&
+        task.status === "completed" &&
+        task.ticket_id === ticketId &&
+        task.qa_items &&
+        !downloadedQaTasks.current.has(task.task_id)
+      ) {
+        downloadedQaTasks.current.add(task.task_id);
+        const items = task.qa_items;
+        const issueKey = task.issue_key;
+        const summary = task.summary ?? "";
+        // 自動DLを試みる。ブロックされても手動DLできるよう項目を保持する。
+        setPendingQaDownload({ issueKey, summary, items });
+        exportQaExcel(issueKey, summary, items)
+          .then(() =>
+            setSnackMessage(
+              `QA項目（${items.length}件）を生成しました。Excelが開始されない場合は下の「ダウンロード」を押してください`,
+            ),
+          )
+          .catch(() => setSnackMessage("QA項目のExcel生成に失敗しました"));
+      }
+    }
+  }, [bgTasks, ticketId]);
+
   if (isLoading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
@@ -161,6 +209,12 @@ export default function TicketDetailPage() {
   const evaluation = ticket.evaluation;
   const needsReEval = ticket.needs_re_evaluation;
   const hasSpec = ticket.comments?.some((c: TicketComment) => c.tags?.includes("spec"));
+  const qaRunning =
+    qaMutation.isPending ||
+    (bgTasks?.some(
+      (t) => t.task_type === "qa" && t.ticket_id === ticketId && t.status === "running",
+    ) ??
+      false);
 
   const filteredComments = (ticket.comments || []).filter((c: TicketComment) => {
     if (!tagFilter) return true;
@@ -476,7 +530,57 @@ export default function TicketDetailPage() {
             {specMutation.isSuccess ? "生成中…" : `方針書${hasSpec ? "再生成" : "生成"}`}
           </Button>
         </Tooltip>
+        <Tooltip title="チケット内容から QA テスト項目を AI で作成し、Excel でダウンロードします">
+          <Button
+            variant="outlined"
+            startIcon={
+              qaRunning ? <CircularProgress size={16} /> : <FactCheckIcon />
+            }
+            onClick={() => {
+              qaMutation.mutate(undefined, {
+                onSuccess: () =>
+                  setSnackMessage("QA項目の作成を開始しました（完了後に自動でExcelをダウンロードします）"),
+                onError: () => setSnackMessage("QA項目作成の開始に失敗しました"),
+              });
+            }}
+            disabled={qaRunning}
+          >
+            {qaRunning ? "作成中…" : "QA項目作成"}
+          </Button>
+        </Tooltip>
       </Box>
+
+      {/* QA項目 手動ダウンロード（自動DLがブロックされた場合の保険） */}
+      {pendingQaDownload && (
+        <Alert
+          severity="success"
+          icon={<FactCheckIcon />}
+          action={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={<DescriptionIcon />}
+                onClick={() => {
+                  exportQaExcel(
+                    pendingQaDownload.issueKey,
+                    pendingQaDownload.summary,
+                    pendingQaDownload.items,
+                  ).catch(() => setSnackMessage("Excel生成に失敗しました"));
+                }}
+              >
+                ダウンロード
+              </Button>
+              <IconButton size="small" onClick={() => setPendingQaDownload(null)}>
+                <CancelIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          }
+        >
+          QA項目（{pendingQaDownload.items.length}件）を生成しました。Excelが自動で開始されない場合は「ダウンロード」を押してください。
+        </Alert>
+      )}
 
       {/* Difficulty Radar Chart (メイン) */}
       {evaluation && evaluation.overall_difficulty_score > 0 && (

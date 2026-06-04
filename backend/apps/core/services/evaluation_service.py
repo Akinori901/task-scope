@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from enum import IntEnum
 from pathlib import Path
 
 import httpx
@@ -17,6 +18,25 @@ from django.conf import settings
 from django.utils import timezone as tz
 
 from apps.core.models import CodeRepository, Comment, Ticket, TicketEvaluation
+
+
+class HttpTimeout(IntEnum):
+    """eval-proxy への httpx リクエストのタイムアウト秒数。
+
+    **proxy 側（eval_proxy.ProxyTimeout）より必ず大きくすること。**
+    proxy の subprocess timeout（MAX 生成時間 10 分 = 600s）が先に発火して
+    claude を確実に終了させてから、backend がレスポンスを受け取れるようにするため、
+    proxy + マージン（60s）を確保する。
+    """
+
+    # cwd なし（テキストのみ生成）: proxy TEXT(600s) + 60s
+    TEXT = 660
+    # cwd あり（コードベース探索）: proxy CODE_EXPLORATION(600s) + 60s
+    CODE_EXPLORATION = 660
+
+    @classmethod
+    def for_request(cls, cwd: str | None) -> float:
+        return float(cls.CODE_EXPLORATION if cwd else cls.TEXT)
 
 def resolve_repositories(ticket: Ticket) -> list[CodeRepository]:
     """チケットに紐づくコードリポジトリを解決する（複数返却可能）"""
@@ -92,7 +112,7 @@ def _call_proxy(endpoint: str, prompt: str, model: str = "sonnet", cwd: str | No
     payload: dict[str, object] = {"prompt": prompt, "model": model}
     if cwd:
         payload["cwd"] = cwd
-    timeout = 660.0 if cwd else 360.0
+    timeout = HttpTimeout.for_request(cwd)
     with httpx.Client(timeout=timeout) as client:
         resp = client.post(
             f"{EVAL_PROXY_URL}{endpoint}",
@@ -425,6 +445,116 @@ def evaluate_ticket(ticket: Ticket) -> TicketEvaluation:
         generate_spec(ticket, comments_text)
 
     return evaluation
+
+
+def _build_qa_prompt(ticket: Ticket, comments_text: str, repos: list[CodeRepository] | None = None) -> str:
+    """QA テスト項目生成用のプロンプトを構築する"""
+    return f"""あなたは品質保証(QA)に精通したテストエンジニアです。
+以下の Backlog チケット情報を元に、**QA テスト項目リスト**を作成してください。
+
+## チケット情報
+- キー: {ticket.issue_key}
+- 件名: {ticket.summary}
+- 種別: {ticket.issue_type}
+- ステータス: {ticket.status_name}
+- 優先度: {ticket.priority_name}
+- 担当者: {ticket.assignee.name if ticket.assignee else "未割当"}
+{f'''
+## カスタム属性
+{_format_custom_fields(ticket)}''' if ticket.custom_fields else ""}
+
+## 説明
+{ticket.description or "(説明なし)"}
+
+## コメント
+{comments_text or "(コメントなし)"}
+
+---
+
+## 出力要件
+チケットの内容から、受入確認・回帰確認に必要なテスト項目を網羅的に洗い出してください。
+
+- チケット説明にテストケース（条件分岐・期待結果など）が記載されている場合は、それを **漏れなく** 項目化すること
+- 正常系だけでなく、境界値・異常系・エラーケースも含めること
+- 各項目は QA 担当者がそのまま手順を実行できる粒度で記述すること
+- 「テスト観点」は項目をグルーピングするカテゴリ名（例: 過剰時の実投入時間表示、不足時の差異表示 など）
+
+以下の JSON 形式のみで回答してください。JSON 以外のテキスト（説明文・コードフェンス等）は一切含めないでください。
+
+{{
+  "qa_items": [
+    {{
+      "category": "<テスト観点（カテゴリ名）>",
+      "precondition": "<前提条件・テストデータ>",
+      "steps": "<テスト手順（複数行は \\n で区切る）>",
+      "expected": "<期待結果>",
+      "note": "<備考（任意・無ければ空文字）>"
+    }}
+  ]
+}}
+
+- 項目数の上限はありません。網羅性を最優先してください。
+- 同じ category が複数項目にまたがってよい（手順ごとに1項目）。""" + _build_code_reference_section(repos)
+
+
+def generate_qa_items(ticket: Ticket, comments_text: str | None = None) -> tuple[list[dict], Comment]:
+    """チケットから QA テスト項目を生成する → qa タグ付き Comment（JSON）として保存
+
+    Returns: (qa_items のリスト, 保存した Comment)
+    """
+    if comments_text is None:
+        comments_text = _get_comments_text(ticket)
+
+    repos = resolve_repositories(ticket)
+    cwd = repos[0].local_path if repos else None
+    prompt = _build_qa_prompt(ticket, comments_text, repos)
+    model = "opus" if cwd else "sonnet"
+    response_text = _call_proxy("/generate-qa", prompt, model=model, cwd=cwd)
+
+    # レスポンスから JSON を抽出
+    json_match = re.search(r"\{[\s\S]*\}", response_text)
+    if not json_match:
+        raise ValueError(f"AI response did not contain valid JSON: {response_text[:200]}")
+
+    result = json.loads(json_match.group())
+    raw_items = result.get("qa_items", [])
+    if not isinstance(raw_items, list):
+        raise ValueError("AI response 'qa_items' was not a list")
+
+    # 各フィールドを文字列に正規化する。
+    # モデルが steps を配列（手順のリスト）で返すことがあるため、改行区切りの
+    # 文字列に変換する。フロントの Excel 生成は文字列前提のため、ここで吸収する。
+    def _to_text(value: object) -> str:
+        if isinstance(value, list):
+            return "\n".join(str(v) for v in value)
+        if value is None:
+            return ""
+        return str(value)
+
+    qa_items = [
+        {
+            "category": _to_text(item.get("category")),
+            "precondition": _to_text(item.get("precondition")),
+            "steps": _to_text(item.get("steps")),
+            "expected": _to_text(item.get("expected")),
+            "note": _to_text(item.get("note")),
+        }
+        for item in raw_items
+        if isinstance(item, dict)
+    ]
+    # 正規化済みのデータを保存内容にも反映する
+    result["qa_items"] = qa_items
+
+    comment = Comment.objects.create(
+        ticket=ticket,
+        backlog_id=0,
+        content=json.dumps(result, ensure_ascii=False, indent=2),
+        tags=["qa"],
+        source="ai",
+        backlog_created=tz.now(),
+    )
+
+    return qa_items, comment
 
 
 def generate_spec(ticket: Ticket, comments_text: str | None = None) -> Comment:
