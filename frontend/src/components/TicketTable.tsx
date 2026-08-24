@@ -1,3 +1,4 @@
+import ArticleIcon from "@mui/icons-material/Article";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
@@ -54,6 +55,7 @@ const columns: {
   { key: "due_date", label: "期限", sortable: true, width: 110 },
   { key: "eval", label: "評価", sortable: false, width: 60 },
   { key: "spec", label: "方針書", sortable: false, width: 60 },
+  { key: "report", label: "報告書", sortable: false, width: 60 },
   { key: "re_eval", label: "再評価", sortable: false, width: 60 },
   { key: "alerts", label: "アラート", sortable: false, width: 140 },
 ];
@@ -203,6 +205,23 @@ function TicketRow({
         </Tooltip>
       </TableCell>
       <TableCell align="center">
+        <Tooltip title={ticket.has_report ? "報告書あり — クリックで報告書を表示" : "報告書なし"}>
+          <ArticleIcon
+            fontSize="small"
+            sx={{
+              color: ticket.has_report ? "success.main" : "text.disabled",
+              cursor: ticket.has_report ? "pointer" : "default",
+            }}
+            onClick={(e) => {
+              if (ticket.has_report) {
+                e.stopPropagation();
+                navigate(`/tickets/${ticket.id}?tag=report`);
+              }
+            }}
+          />
+        </Tooltip>
+      </TableCell>
+      <TableCell align="center">
         {ticket.needs_re_evaluation && (
           <Tooltip title="新コメントあり — 再評価推奨">
             <RefreshIcon fontSize="small" sx={{ color: "error.main" }} />
@@ -282,6 +301,8 @@ export default function TicketTable({
 
   const page = (filters.page ?? 1) - 1;
   const count = data?.count ?? 0;
+  // ページ範囲外などで results が欠落するレスポンスでも落ちないようガード
+  const rows = data?.results ?? [];
 
   return (
     <Paper>
@@ -313,14 +334,14 @@ export default function TicketTable({
                   読み込み中…
                 </TableCell>
               </TableRow>
-            ) : data?.results.length === 0 ? (
+            ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} align="center">
                   <Typography color="text.secondary">該当チケットなし</Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              data?.results.map((ticket) => (
+              rows.map((ticket) => (
                 <React.Fragment key={ticket.id}>
                   <TicketRow
                     ticket={ticket}

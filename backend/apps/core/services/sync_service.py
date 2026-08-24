@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections
@@ -93,8 +93,12 @@ class SyncService:
         self._excluded_names: set[str] = set()
         self._myself_backlog_id: int | None = None
 
-    async def sync_all(self) -> None:
-        """DB に登録された全スペースのデータを同期する"""
+    async def sync_all(self, *, full: bool = False) -> None:
+        """DB に登録された全スペースのデータを同期する。
+
+        full=False（既定）は差分同期: 各プロジェクトの last_synced_at 以降に
+        更新されたチケットのみ取得する。full=True は全件同期（削除検知用）。
+        """
         spaces = [s async for s in BacklogSpace.objects.all()]
 
         if not spaces:
@@ -104,17 +108,17 @@ class SyncService:
             )
 
         for space in spaces:
-            await self._sync_space(space)
+            await self._sync_space(space, full=full)
 
-    async def sync_space(self, space_id: int) -> None:
+    async def sync_space(self, space_id: int, *, full: bool = False) -> None:
         """指定スペースのみ同期する"""
         try:
             space = await BacklogSpace.objects.aget(pk=space_id)
         except BacklogSpace.DoesNotExist:
             raise ValueError(f"Space {space_id} not found")
-        await self._sync_space(space)
+        await self._sync_space(space, full=full)
 
-    async def _sync_space(self, space: BacklogSpace) -> None:
+    async def _sync_space(self, space: BacklogSpace, *, full: bool = False) -> None:
         """1 スペース分の同期処理"""
         self.space = space
         self._user_cache = {}
@@ -124,7 +128,7 @@ class SyncService:
         )
 
         try:
-            logger.info("Sync started for %s", space)
+            logger.info("Sync started for %s (%s)", space, "full" if full else "incremental")
 
             # 除外ステータス名をキャッシュ（async context で先に読み込む）
             self._excluded_names = await sync_to_async(ExcludedStatus.get_excluded_names)()
@@ -138,7 +142,7 @@ class SyncService:
             # 3. 各プロジェクトのチケットを取得
             for project in projects:
                 await sync_to_async(close_old_connections)()
-                await self._sync_project_tickets(project)
+                await self._sync_project_tickets(project, full=full)
 
             # 4. ウォッチ中チケットを同期
             await sync_to_async(close_old_connections)()
@@ -216,10 +220,22 @@ class SyncService:
         logger.info("Synced %d projects", len(projects))
         return projects
 
-    async def _sync_project_tickets(self, project: Project) -> None:
+    async def _sync_project_tickets(self, project: Project, *, full: bool = False) -> None:
         assert self.client is not None
 
-        logger.info("Syncing tickets for %s ...", project.project_key)
+        # 差分同期: 前回同期日以降に更新されたチケットのみ取得する。
+        # Backlog の updatedSince は日付単位（yyyy-MM-dd）なので、取りこぼしを
+        # 防ぐため last_synced_at の「前日」を基準にする（upsert なので重複可）。
+        updated_since: str | None = None
+        if not full and project.last_synced_at is not None:
+            since_date = (project.last_synced_at - timedelta(days=1)).date()
+            updated_since = since_date.isoformat()
+
+        logger.info(
+            "Syncing tickets for %s ... (%s)",
+            project.project_key,
+            f"since {updated_since}" if updated_since else "full",
+        )
         offset = 0
         total = 0
         parent_map: list[tuple[int, int]] = []  # (ticket_id, parent_backlog_id)
@@ -228,6 +244,7 @@ class SyncService:
             issues = await self.client.get_issues(
                 project_id=project.backlog_id,
                 offset=offset,
+                updated_since=updated_since,
             )
             if not issues:
                 break

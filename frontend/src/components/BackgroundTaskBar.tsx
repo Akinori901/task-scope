@@ -21,7 +21,11 @@ export default function BackgroundTaskBar() {
 
   const { data: tasks } = useQuery({
     queryKey: ["background-tasks"],
-    queryFn: () => fetchBackgroundTasks().then((r: { data: BackgroundTask[] }) => r.data),
+    queryFn: () =>
+      fetchBackgroundTasks().then((r: { data: BackgroundTask[] }) =>
+        // 認証レースや非配列レスポンスでも落ちないよう配列を保証
+        Array.isArray(r.data) ? r.data : [],
+      ),
     refetchInterval: (query) => {
       const data = query.state.data as BackgroundTask[] | undefined;
       if (data?.some((t) => t.status === "running")) return 3000;

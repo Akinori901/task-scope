@@ -200,7 +200,7 @@ export default function DifficultyRadarChart({ evaluation }: Props) {
           </Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {evaluation.resolution_type && evaluation.resolution_type !== "unknown" && (() => {
-              const res = RESOLUTION_LABELS[evaluation.resolution_type] || RESOLUTION_LABELS.unknown;
+              const res = RESOLUTION_LABELS[evaluation.resolution_type] ?? RESOLUTION_LABELS.unknown!;
               return (
                 <Chip
                   label={res.label}

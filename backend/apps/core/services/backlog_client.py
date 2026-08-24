@@ -45,17 +45,19 @@ class BacklogClient:
         project_id: int,
         offset: int = 0,
         count: int = 100,
+        updated_since: str | None = None,
     ) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = await self._get(
-            "/issues",
-            params={
-                "projectId[]": project_id,
-                "count": count,
-                "offset": offset,
-                "order": "desc",
-                "sort": "updated",
-            },
-        )
+        params: dict[str, Any] = {
+            "projectId[]": project_id,
+            "count": count,
+            "offset": offset,
+            "order": "desc",
+            "sort": "updated",
+        }
+        # 差分同期: updatedSince（yyyy-MM-dd）以降に更新された issue のみ取得
+        if updated_since:
+            params["updatedSince"] = updated_since
+        result: list[dict[str, Any]] = await self._get("/issues", params=params)
         return result
 
     async def get_issue_comments(

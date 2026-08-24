@@ -1,13 +1,11 @@
 import { useState } from "react";
 import SyncIcon from "@mui/icons-material/Sync";
-import LogoutIcon from "@mui/icons-material/Logout";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import SettingsIcon from "@mui/icons-material/Settings";
 import CheckIcon from "@mui/icons-material/Check";
-import { logout } from "../auth/useAuth";
 import {
   AppBar,
   Box,
@@ -207,19 +205,6 @@ export default function Layout() {
             </Button>
           )}
 
-          {!isMobile && (
-            <Button
-              variant="text"
-              color="inherit"
-              size="small"
-              startIcon={<LogoutIcon />}
-              onClick={() => void logout()}
-              sx={{ ml: 1 }}
-            >
-              ログアウト
-            </Button>
-          )}
-
           {/* モバイル: タイトルタップで開くメニュー */}
           {isMobile && (
             <>
@@ -289,18 +274,6 @@ export default function Layout() {
                     )}
                   </ListItemIcon>
                   <ListItemText>同期</ListItemText>
-                </MenuItem>
-
-                <MenuItem
-                  onClick={() => {
-                    closeMenu();
-                    void logout();
-                  }}
-                >
-                  <ListItemIcon>
-                    <LogoutIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>ログアウト</ListItemText>
                 </MenuItem>
               </Menu>
             </>

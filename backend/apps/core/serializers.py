@@ -165,6 +165,7 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
     external_url = serializers.SerializerMethodField()
     has_evaluation = serializers.SerializerMethodField()
     has_spec = serializers.SerializerMethodField()
+    has_report = serializers.SerializerMethodField()
     needs_re_evaluation = serializers.SerializerMethodField()
     new_comment_count = serializers.SerializerMethodField()
     spec_readiness = serializers.SerializerMethodField()
@@ -206,6 +207,7 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
             "external_url",
             "has_evaluation",
             "has_spec",
+            "has_report",
             "needs_re_evaluation",
             "new_comment_count",
             "spec_readiness",
@@ -244,6 +246,11 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
         if hasattr(obj, "_has_spec"):
             return obj._has_spec  # type: ignore[return-value]
         return Comment.objects.filter(ticket=obj, tags__contains=["spec"]).exists()
+
+    def get_has_report(self, obj: Ticket) -> bool:
+        if hasattr(obj, "_has_report"):
+            return obj._has_report  # type: ignore[return-value]
+        return Comment.objects.filter(ticket=obj, tags__contains=["report"]).exists()
 
     def get_needs_re_evaluation(self, obj: Ticket) -> bool:
         try:

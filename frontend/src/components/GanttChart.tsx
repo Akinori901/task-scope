@@ -303,6 +303,7 @@ function ScheduleRows({
           external_url: null,
           has_evaluation: false,
           has_spec: false,
+          has_report: false,
           needs_re_evaluation: false,
           new_comment_count: 0,
           spec_readiness: null,

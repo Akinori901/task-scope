@@ -1,3 +1,4 @@
+import ArticleIcon from "@mui/icons-material/Article";
 import DescriptionIcon from "@mui/icons-material/Description";
 import GradingIcon from "@mui/icons-material/Grading";
 import WarningIcon from "@mui/icons-material/Warning";
@@ -66,6 +67,21 @@ export default function DelayAlertList({ tickets }: Props) {
                         if (ticket.has_spec) {
                           e.stopPropagation();
                           navigate(`/tickets/${ticket.id}?tag=spec`);
+                        }
+                      }}
+                    />
+                  </Tooltip>
+                  <Tooltip title={ticket.has_report ? "報告書あり — クリックで報告書を表示" : "報告書なし"}>
+                    <ArticleIcon
+                      fontSize="small"
+                      sx={{
+                        color: ticket.has_report ? "success.main" : "text.disabled",
+                        cursor: ticket.has_report ? "pointer" : "default",
+                      }}
+                      onClick={(e: { stopPropagation: () => void }) => {
+                        if (ticket.has_report) {
+                          e.stopPropagation();
+                          navigate(`/tickets/${ticket.id}?tag=report`);
                         }
                       }}
                     />
