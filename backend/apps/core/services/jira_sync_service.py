@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from asgiref.sync import sync_to_async
@@ -58,15 +58,20 @@ class JiraSyncService:
         self._user_cache: dict[str, BacklogUser] = {}
         self._excluded_names: set[str] = set()
 
-    async def sync_space(self, space_id: int) -> None:
+    async def sync_all(self, *, full: bool = False) -> None:
+        """登録済みの全 Jira スペースを同期する。"""
+        async for space in JiraSpace.objects.all():
+            await self._sync_space(space, full=full)
+
+    async def sync_space(self, space_id: int, *, full: bool = False) -> None:
         """指定 Jira スペースを同期する"""
         try:
             space = await JiraSpace.objects.aget(pk=space_id)
         except JiraSpace.DoesNotExist:
             raise ValueError(f"JiraSpace {space_id} not found")
-        await self._sync_space(space)
+        await self._sync_space(space, full=full)
 
-    async def _sync_space(self, space: JiraSpace) -> None:
+    async def _sync_space(self, space: JiraSpace, *, full: bool = False) -> None:
         self.jira_space = space
         self._user_cache = {}
         self.client = JiraClient(
@@ -76,7 +81,7 @@ class JiraSyncService:
         )
 
         try:
-            logger.info("Jira sync started for %s", space)
+            logger.info("Jira sync started for %s (%s)", space, "full" if full else "incremental")
 
             self._excluded_names = await sync_to_async(ExcludedStatus.get_excluded_names)()
 
@@ -89,7 +94,7 @@ class JiraSyncService:
             # 3. 各プロジェクトのチケット
             for project in projects:
                 await sync_to_async(close_old_connections)()
-                await self._sync_project_tickets(project)
+                await self._sync_project_tickets(project, full=full)
 
             # 4. 完了
             space.last_synced_at = timezone.now()
@@ -166,10 +171,21 @@ class JiraSyncService:
         logger.info("Synced %d Jira projects", len(projects))
         return projects
 
-    async def _sync_project_tickets(self, project: Project) -> None:
+    async def _sync_project_tickets(self, project: Project, *, full: bool = False) -> None:
         assert self.client is not None
 
-        logger.info("Syncing Jira tickets for %s ...", project.project_key)
+        # 差分同期: 前回同期日以降に更新されたチケットのみ取得。
+        # 取りこぼし防止のため last_synced_at の「前日」を基準にする（upsert）。
+        updated_since: str | None = None
+        if not full and project.last_synced_at is not None:
+            since_date = (project.last_synced_at - timedelta(days=1)).date()
+            updated_since = since_date.isoformat()
+
+        logger.info(
+            "Syncing Jira tickets for %s ... (%s)",
+            project.project_key,
+            f"since {updated_since}" if updated_since else "full",
+        )
         total = 0
         next_page_token: str | None = None
         parent_map: list[tuple[int, int]] = []  # (ticket_id, parent_jira_id)
@@ -178,6 +194,7 @@ class JiraSyncService:
             result = await self.client.search_issues(
                 project_key=project.project_key,
                 next_page_token=next_page_token,
+                updated_since=updated_since,
             )
             issues = result.get("issues", [])
             if not issues:

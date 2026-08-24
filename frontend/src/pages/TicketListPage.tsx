@@ -16,11 +16,13 @@ import {
   List,
   ListItem,
   ListItemText,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { TicketQueryParams, UnpostedSpec } from "../api/client";
 import { bulkPostComments, deleteComment, exportTicketsCsv, fetchUnpostedSpecs } from "../api/client";
@@ -54,8 +56,15 @@ function filtersFromSearchParams(sp: URLSearchParams, defaultOrdering: string): 
   return f;
 }
 
+/** チケットの親子表示モード。root=親のみ / child=子のみ / all=両方 */
+type Hierarchy = "root" | "child" | "all";
+
 /** フィルターをURLクエリパラメータに変換 */
-function filtersToSearchParams(filters: TicketQueryParams, excludeCompleted: boolean): URLSearchParams {
+function filtersToSearchParams(
+  filters: TicketQueryParams,
+  excludeCompleted: boolean,
+  hierarchy: Hierarchy = "root",
+): URLSearchParams {
   const sp = new URLSearchParams();
   if (filters.search) sp.set("search", filters.search);
   if (filters.project) sp.set("project", String(filters.project));
@@ -70,6 +79,8 @@ function filtersToSearchParams(filters: TicketQueryParams, excludeCompleted: boo
   if (filters.ordering && filters.ordering !== "-backlog_updated") sp.set("ordering", filters.ordering);
   if (filters.page && filters.page > 1) sp.set("page", String(filters.page));
   if (!excludeCompleted) sp.set("show_completed", "1");
+  // 既定(root)以外のときだけURLに出す
+  if (hierarchy !== "root") sp.set("hierarchy", hierarchy);
   return sp;
 }
 
@@ -81,27 +92,61 @@ export default function TicketListPage() {
 
   const filters = useMemo(() => filtersFromSearchParams(searchParams, "-backlog_updated"), [searchParams]);
   const excludeCompleted = !searchParams.has("show_completed");
+  const hierarchy = (searchParams.get("hierarchy") as Hierarchy) || "root";
 
   const setFilters = useCallback(
     (next: TicketQueryParams) => {
-      setSearchParams(filtersToSearchParams(next, excludeCompleted), { replace: true });
+      setSearchParams(filtersToSearchParams(next, excludeCompleted, hierarchy), { replace: true });
     },
-    [setSearchParams, excludeCompleted],
+    [setSearchParams, excludeCompleted, hierarchy],
   );
 
   const setExcludeCompleted = useCallback(
     (val: boolean) => {
-      setSearchParams(filtersToSearchParams(filters, val), { replace: true });
+      // 絞り込み件数が変わるため 1 ページ目へ戻す（範囲外 page を避ける）
+      setSearchParams(filtersToSearchParams({ ...filters, page: 1 }, val, hierarchy), { replace: true });
     },
-    [setSearchParams, filters],
+    [setSearchParams, filters, hierarchy],
   );
+
+  const setHierarchy = useCallback(
+    (val: Hierarchy) => {
+      // 母集団が変わるので 1 ページ目へ戻す
+      setSearchParams(filtersToSearchParams({ ...filters, page: 1 }, excludeCompleted, val), {
+        replace: true,
+      });
+    },
+    [setSearchParams, filters, excludeCompleted],
+  );
+
+  // 現場(spaceId)・表示(viewMode)を切り替えると母集団が変わるため、
+  // 範囲外 page に取り残されないよう 1 ページ目へ戻す（初回マウント時は何もしない）
+  const scopeKey = `${spaceId ?? ""}|${viewMode}`;
+  const prevScopeKey = useRef(scopeKey);
+  useEffect(() => {
+    if (prevScopeKey.current !== scopeKey) {
+      prevScopeKey.current = scopeKey;
+      if ((filters.page ?? 1) > 1) {
+        setSearchParams(filtersToSearchParams({ ...filters, page: 1 }, excludeCompleted, hierarchy), {
+          replace: true,
+        });
+      }
+    }
+  }, [scopeKey, filters, excludeCompleted, hierarchy, setSearchParams]);
+
+  // 親子表示: 検索時は全件対象。それ以外は hierarchy に応じて is_root を制御
+  // （root=親のみ / child=子のみ / all=両方）。
+  const isRootFilter =
+    filters.search || hierarchy === "all"
+      ? {}
+      : { is_root: (hierarchy === "root") as boolean };
 
   const mergedFilters = {
     ...filters,
     view: viewMode,
     ...spaceFilter,
     exclude_completed: excludeCompleted || undefined,
-    ...(filters.search ? {} : { is_root: true as const }),
+    ...isRootFilter,
   };
   const { data, isLoading } = useTickets(mergedFilters);
   const { data: projects, isLoading: projectsLoading } = useProjects();
@@ -140,6 +185,20 @@ export default function TicketListPage() {
           milestoneNames={milestoneNames ?? []}
           ticketTags={ticketTags ?? []}
         />
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={hierarchy}
+          onChange={(_, val) => {
+            if (val) setHierarchy(val as Hierarchy);
+          }}
+          disabled={!!filters.search}
+          sx={{ ml: "auto", whiteSpace: "nowrap" }}
+        >
+          <ToggleButton value="root">親のみ</ToggleButton>
+          <ToggleButton value="child">子のみ</ToggleButton>
+          <ToggleButton value="all">両方</ToggleButton>
+        </ToggleButtonGroup>
         <FormControlLabel
           control={
             <Checkbox
@@ -151,7 +210,7 @@ export default function TicketListPage() {
             />
           }
           label="完了を除外"
-          sx={{ whiteSpace: "nowrap", ml: "auto" }}
+          sx={{ whiteSpace: "nowrap" }}
         />
         <Button
           variant="outlined"

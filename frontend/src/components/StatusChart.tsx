@@ -1,4 +1,12 @@
-import { Card, CardContent, Typography } from "@mui/material";
+import { useMemo, useState } from "react";
+import {
+  Box,
+  Card,
+  CardContent,
+  FormControlLabel,
+  Switch,
+  Typography,
+} from "@mui/material";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import type { StatusDistribution } from "../api/types";
 
@@ -17,20 +25,51 @@ const COLORS = [
   "#607d8b",
 ];
 
+// 完了とみなすステータス名（backend の CLOSED_STATUS_NAMES と一致させる）
+const CLOSED_STATUS_NAMES = new Set(["完了", "Closed", "Done", "Resolved", "Close"]);
+
 export default function StatusChart({ data }: Props) {
+  const [excludeCompleted, setExcludeCompleted] = useState(false);
+
+  const shown = useMemo(
+    () =>
+      excludeCompleted
+        ? data.filter((d) => !CLOSED_STATUS_NAMES.has(d.status))
+        : data,
+    [data, excludeCompleted],
+  );
+
+  const hasCompleted = useMemo(
+    () => data.some((d) => CLOSED_STATUS_NAMES.has(d.status)),
+    [data],
+  );
+
   return (
     <Card>
       <CardContent>
-        <Typography variant="h6" gutterBottom>
-          ステータス分布
-        </Typography>
-        {data.length === 0 ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+          <Typography variant="h6">ステータス分布</Typography>
+          {hasCompleted && (
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={excludeCompleted}
+                  onChange={(e) => setExcludeCompleted(e.target.checked)}
+                />
+              }
+              label="完了を除外"
+              sx={{ mr: 0, "& .MuiFormControlLabel-label": { fontSize: 13 } }}
+            />
+          )}
+        </Box>
+        {shown.length === 0 ? (
           <Typography color="text.secondary">データなし</Typography>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
-                data={data}
+                data={shown}
                 dataKey="count"
                 nameKey="status"
                 cx="50%"
@@ -38,7 +77,7 @@ export default function StatusChart({ data }: Props) {
                 outerRadius={100}
                 label={({ name, value }) => `${name}: ${value}`}
               >
-                {data.map((_, index) => (
+                {shown.map((_, index) => (
                   <Cell
                     key={`cell-${index}`}
                     fill={COLORS[index % COLORS.length]}

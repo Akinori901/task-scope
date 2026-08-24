@@ -208,6 +208,9 @@ class TicketListView(generics.ListAPIView[Ticket]):
                 _has_spec=Exists(
                     Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["spec"])
                 ),
+                _has_report=Exists(
+                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["report"])
+                ),
                 _real_comment_count=Count(
                     "comments", filter=Q(comments__content__gt="")
                 ),

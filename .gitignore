@@ -46,3 +46,8 @@ docs/
 .claude/projects/
 .claude/skills/
 
+
+# 認証・本番設定（PUBLICには含めない）
+.claude/
+.env.production
+frontend/.env.production

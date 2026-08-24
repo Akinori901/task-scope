@@ -82,6 +82,7 @@ export interface Ticket {
   external_url: string | null;
   has_evaluation: boolean;
   has_spec: boolean;
+  has_report: boolean;
   needs_re_evaluation: boolean;
   new_comment_count: number;
   spec_readiness: "ready" | "partial" | "not_ready" | null;

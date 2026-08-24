@@ -69,10 +69,20 @@ class JiraClient:
         project_key: str,
         next_page_token: str | None = None,
         max_results: int = 100,
+        updated_since: str | None = None,
     ) -> dict[str, Any]:
-        """JQL でプロジェクト内の課題を検索 (POST /search/jql, cursor-based)"""
+        """JQL でプロジェクト内の課題を検索 (POST /search/jql, cursor-based)
+
+        updated_since（yyyy-MM-dd）を指定すると、その日以降に更新された課題のみ
+        取得する（差分同期）。
+        """
+        jql = f"project = {project_key}"
+        if updated_since:
+            # JQL は日付を yyyy/MM/dd で解釈する
+            jql += f' AND updated >= "{updated_since.replace("-", "/")}"'
+        jql += " ORDER BY updated DESC"
         body: dict[str, Any] = {
-            "jql": f"project = {project_key} ORDER BY updated DESC",
+            "jql": jql,
             "maxResults": max_results,
             "fields": [
                 "summary", "description", "issuetype", "status", "priority",
