@@ -72,7 +72,11 @@ class DashboardStatsView(APIView):
         if project_id:
             tickets = tickets.filter(project_id=project_id)
         if status_name:
-            tickets = tickets.filter(status_name=status_name)
+            status_names = [s.strip() for s in status_name.split(",") if s.strip()]
+            if len(status_names) == 1:
+                tickets = tickets.filter(status_name=status_names[0])
+            elif status_names:
+                tickets = tickets.filter(status_name__in=status_names)
         if assignee_id:
             tickets = tickets.filter(assignee_id=assignee_id)
         if category:
@@ -944,7 +948,11 @@ class GanttMilestoneListView(APIView):
 
         status_name = request.query_params.get("status_name")
         if status_name:
-            tickets_qs = tickets_qs.filter(status_name=status_name)
+            status_names = [s.strip() for s in status_name.split(",") if s.strip()]
+            if len(status_names) == 1:
+                tickets_qs = tickets_qs.filter(status_name=status_names[0])
+            elif status_names:
+                tickets_qs = tickets_qs.filter(status_name__in=status_names)
         assignee_id = request.query_params.get("assignee")
         if assignee_id:
             tickets_qs = tickets_qs.filter(assignee_id=assignee_id)
