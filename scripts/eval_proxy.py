@@ -24,6 +24,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 CLAUDE_PATH = shutil.which("claude") or "claude"
+
+# コードベース探索時に claude へ許可するツール。
+#
+# Skill: 対象リポジトリの .claude/skills/ に置かれた既存スキルをそのまま
+#   使わせるために必要。スキルはリポジトリごとに異なるので、どれを使うかは
+#   プロンプト側で列挙して指示する。
+# Bash: git log / git blame 等で変更履歴を参照させ、生成物の精度を上げるため。
+#
+# 注意: Edit/Write は意図的に許可しない。生成はあくまで読み取りと文章生成であり、
+# 対象リポジトリのワーキングツリーを書き換えてよい場面ではない。
+# ただし Bash を許可した時点でホスト上で任意コマンドが実行可能になる点は
+# 承知の上（このプロキシは開発者自身のマシンでのみ動かす前提）。
+CODE_EXPLORATION_TOOLS = "Read,Glob,Grep,Skill,Bash"
+MAX_TURNS = "25"
 DEFAULT_MODEL = "sonnet"
 
 
@@ -56,7 +70,7 @@ def call_claude(prompt: str, model: str = DEFAULT_MODEL, max_tokens: int = 4096,
 
     # コード参照時はツール使用を許可し、複数ターンで探索させる
     if cwd:
-        cmd.extend(["--allowedTools", "Read,Glob,Grep", "--max-turns", "25"])
+        cmd.extend(["--allowedTools", CODE_EXPLORATION_TOOLS, "--max-turns", MAX_TURNS])
 
     timeout = ProxyTimeout.for_request(cwd)
 
