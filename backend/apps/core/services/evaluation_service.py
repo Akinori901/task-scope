@@ -497,6 +497,39 @@ def _build_qa_prompt(ticket: Ticket, comments_text: str, repos: list[CodeReposit
 - 同じ category が複数項目にまたがってよい（手順ごとに1項目）。""" + _build_code_reference_section(repos)
 
 
+# ローカル生成コメント（Backlog 由来でないもの）に割り当てる backlog_id の下限。
+# Comment には UniqueConstraint(ticket, backlog_id) があるため、AI 生成物を
+# 常に backlog_id=0 で作ると **同一チケットで 2 回目以降の生成が必ず失敗する**
+# （再生成は通常操作なので致命的）。実際の Backlog コメント ID は現状 10^15 前後
+# なので、それより十分小さい 1..LOCAL_COMMENT_ID_BASE の帯を衝突しない
+# ローカル採番用に使う。0 は既存データが使っているので温存する。
+LOCAL_COMMENT_ID_BASE = 1_000_000
+
+
+def _next_local_backlog_id(ticket: Ticket) -> int:
+    """同一チケット内で未使用のローカル採番 backlog_id を返す。"""
+    used = set(
+        Comment.objects.filter(ticket=ticket, backlog_id__lt=LOCAL_COMMENT_ID_BASE)
+        .values_list("backlog_id", flat=True)
+    )
+    candidate = 1
+    while candidate in used:
+        candidate += 1
+    return candidate
+
+
+def _create_ai_comment(ticket: Ticket, content: str, tags: list[str]) -> Comment:
+    """AI 生成物を Comment として保存する（再生成しても衝突しない）。"""
+    return Comment.objects.create(
+        ticket=ticket,
+        backlog_id=_next_local_backlog_id(ticket),
+        content=content,
+        tags=tags,
+        source="ai",
+        backlog_created=tz.now(),
+    )
+
+
 def generate_qa_items(ticket: Ticket, comments_text: str | None = None) -> tuple[list[dict], Comment]:
     """チケットから QA テスト項目を生成する → qa タグ付き Comment（JSON）として保存
 
@@ -545,13 +578,8 @@ def generate_qa_items(ticket: Ticket, comments_text: str | None = None) -> tuple
     # 正規化済みのデータを保存内容にも反映する
     result["qa_items"] = qa_items
 
-    comment = Comment.objects.create(
-        ticket=ticket,
-        backlog_id=0,
-        content=json.dumps(result, ensure_ascii=False, indent=2),
-        tags=["qa"],
-        source="ai",
-        backlog_created=tz.now(),
+    comment = _create_ai_comment(
+        ticket, json.dumps(result, ensure_ascii=False, indent=2), ["qa"]
     )
 
     return qa_items, comment
@@ -567,14 +595,7 @@ def generate_spec(ticket: Ticket, comments_text: str | None = None) -> Comment:
     prompt = _build_spec_prompt(ticket, comments_text, repos)
     content = _call_proxy("/generate-spec", prompt, model="opus", cwd=cwd)
 
-    comment = Comment.objects.create(
-        ticket=ticket,
-        backlog_id=0,
-        content=content,
-        tags=["spec"],
-        source="ai",
-        backlog_created=tz.now(),
-    )
+    comment = _create_ai_comment(ticket, content, ["spec"])
 
     # ファイルにも保存
     try:
