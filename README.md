@@ -1,6 +1,17 @@
 # Task Scope
 
-Backlog / Jira Cloud のチケットを複数スペースから収集し、横断的に進捗・難易度・工数を可視化するダッシュボードツール。
+**Backlog / Jira Cloud のチケットを横断で集め、「どれが難しく・何人日かかり・どう進めるか」を AI に評価させるダッシュボード。**
+
+複数のプロジェクト管理サービス（Backlog・Jira Cloud）に散らばったチケットを 1 か所に集約し、進捗・担当者別負荷を可視化します。さらに各チケットを **AI が 6 軸で難易度評価・フェーズ別に工数見積・実装方針書まで自動生成** — 「着手前に、どれが地雷か」を数字と根拠で示します。
+
+<p>
+  <img alt="Python / Django" src="https://img.shields.io/badge/Django_6-Python_3.13-092E20?logo=django&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React_19-TypeScript_5.7-61DAFB?logo=react&logoColor=black">
+  <img alt="AI評価" src="https://img.shields.io/badge/AI評価-難易度6軸_/_工数_/_方針書-D97757">
+  <img alt="連携" src="https://img.shields.io/badge/連携-Backlog_/_Jira_Cloud-0052CC?logo=jira&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker_Compose-ローカル完結-2496ED?logo=docker&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
+</p>
 
 ## 対応サービス
 
@@ -27,6 +38,18 @@ Backlog / Jira Cloud のチケットを複数スペースから収集し、横�
 | 要注意チケット | 遅延・停滞チケットを自動検出してアラート表示 |
 | 除外ステータス設定 | プロジェクトごとに「完了扱い」のステータスを設定可能 |
 | 自分の紐づけ設定 | スペースごとに自分のユーザーを紐づけ、「自分向け」フィルタで使用 |
+
+## 技術的な見どころ
+
+- **AI 評価を「API キー課金」ではなく「Claude Code CLI」で回す** — Docker コンテナからホスト上の `eval-proxy`（Claude Code CLI をラップした軽量 HTTP サーバー）を `host.docker.internal:19001` 経由で叩く構成。難易度評価・工数見積・方針書生成のすべてが、ローカルの Claude サブスクリプションで動きます（`ANTHROPIC_API_KEY` 不要・トークン従量課金なし）。
+- **難易度を「主観」ではなく 6 軸で定量化** — 影響範囲・クエリ複雑度・曖昧度・検証難度・調整コスト・リグレッションリスクの 6 軸でレーダー化し、"なんとなく難しそう" を着手前に見える化。あわせて対処区分（データ修正 / コード修正 / 設定変更 / 調査のみ / 複合）を自動分類します。
+- **複数サービス・複数スペースを 1 つのモデルに正規化** — Backlog API v2 と Jira Cloud REST API v3 という別物の API を、同じチケットモデルへ吸収。ステータスの「完了扱い」もプロジェクト単位で設定でき、横断集計が破綻しません。
+- **Django クリーンアーキテクチャ** — View → Service（`sync_service` / `jira_sync_service` / `evaluation_service` …）に責務を分離し、外部 API クライアントと同期ロジックを分けています。
+
+```
+[Docker: Django backend] --HTTP--> [host: eval-proxy] --claude CLI--> [Claude サブスク]
+        ↑ 難易度評価 / 工数見積 / 方針書生成をリクエスト
+```
 
 ## 技術スタック
 
@@ -341,4 +364,4 @@ task-scope/
 
 ## ライセンス
 
-Public
+[MIT](LICENSE)
