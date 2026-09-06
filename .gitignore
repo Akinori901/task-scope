@@ -36,7 +36,9 @@ docker/mysql/data/
 htmlcov/
 
 # Docs (案件固有ドキュメント)
-docs/
+docs/*
+# 利用者向けガイドだけは配布する（案件固有の調査・方針書は上で除外したまま）
+!docs/wiki/
 
 # Claude — 機密情報を含むファイル / ローカル専用
 .claude/project.config.md
