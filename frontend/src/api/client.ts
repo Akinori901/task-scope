@@ -68,10 +68,18 @@ export interface TicketQueryParams {
   search?: string;
   ordering?: string;
   page?: number;
+  page_size?: number;
 }
 
+/** 一覧の1ページ表示件数。フロントの TablePagination(rowsPerPage) と必ず一致させる */
+export const TICKETS_PAGE_SIZE = 20;
+
 export const fetchTickets = (params: TicketQueryParams) =>
-  apiClient.get<PaginatedResponse<Ticket>>("/tickets/", { params });
+  apiClient.get<PaginatedResponse<Ticket>>("/tickets/", {
+    // backend の DEFAULT PAGE_SIZE(50) に依存せず、フロント表示件数を明示送信して
+    // 「実在しない次ページ」への遷移（範囲外 page でのクラッシュ）を防ぐ
+    params: { page_size: TICKETS_PAGE_SIZE, ...params },
+  });
 
 export const fetchProjects = (spaceFilter?: { space?: number; jira_space?: number }) =>
   apiClient.get<PaginatedResponse<Project>>("/projects/", {

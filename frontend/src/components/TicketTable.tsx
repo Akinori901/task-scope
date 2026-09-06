@@ -25,7 +25,7 @@ import {
 } from "@mui/material";
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { TicketQueryParams } from "../api/client";
+import { TICKETS_PAGE_SIZE, type TicketQueryParams } from "../api/client";
 import type { PaginatedResponse, Ticket } from "../api/types";
 import { useTickets } from "../hooks/useTickets";
 import { useTicketTags } from "../hooks/useTicketTags";
@@ -363,8 +363,8 @@ export default function TicketTable({
         count={count}
         page={page}
         onPageChange={handlePageChange}
-        rowsPerPage={20}
-        rowsPerPageOptions={[20]}
+        rowsPerPage={TICKETS_PAGE_SIZE}
+        rowsPerPageOptions={[TICKETS_PAGE_SIZE]}
         labelDisplayedRows={({ from, to, count: c }) =>
           `${from}–${to} / ${c}`
         }
