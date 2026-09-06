@@ -23,6 +23,7 @@ export interface JiraSpace {
   user_email: string;
   api_token_masked: string;
   last_synced_at: string | null;
+  sync_interval_minutes: number;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +33,7 @@ export interface JiraSpaceInput {
   base_url: string;
   user_email: string;
   api_token: string;
+  sync_interval_minutes?: number;
 }
 
 export interface Project {

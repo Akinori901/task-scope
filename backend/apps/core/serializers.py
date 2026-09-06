@@ -22,7 +22,8 @@ class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):
 class JiraSpaceSerializer(serializers.ModelSerializer[JiraSpace]):
     class Meta:
         model = JiraSpace
-        fields = ["id", "site_name", "base_url", "user_email", "api_token", "last_synced_at", "created_at", "updated_at"]
+        fields = ["id", "site_name", "base_url", "user_email", "api_token", "last_synced_at",
+                  "sync_interval_minutes", "created_at", "updated_at"]
         extra_kwargs = {
             "api_token": {"write_only": True},
         }

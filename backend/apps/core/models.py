@@ -67,6 +67,9 @@ class JiraSpace(models.Model):
     user_email = models.EmailField(help_text="Jira ログイン用メールアドレス")
     api_token = models.CharField(max_length=500, help_text="Jira API トークン")
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_interval_minutes = models.PositiveIntegerField(
+        default=0, help_text="自動同期間隔（分）。0=手動のみ"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
