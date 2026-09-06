@@ -1,6 +1,6 @@
 [project]
 name = "task-scope"
-version = "0.1.0"
+version = "0.2.0"
 description = "Backlog チケットを収集し全体進捗を可視化するダッシュボード"
 requires-python = ">=3.13"
 dependencies = [
