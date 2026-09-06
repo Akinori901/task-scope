@@ -293,6 +293,65 @@ SQL・データ操作の難しさ。DB・テーブル・SQL・クエリへの言
 ### summary: 全体評価サマリ"""
 
 
+def fetch_skills(local_path: str) -> list[dict]:
+    """リポジトリで使えるスキル一覧を eval-proxy 経由で取得する。
+
+    スキルはリポジトリごとに異なるため、生成種別に固定のスキル名を割り当てず
+    実在するものを都度拾う。proxy が落ちていても生成自体は続行させたいので、
+    失敗時は空リストを返す。
+    """
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(f"{EVAL_PROXY_URL}/list-skills", json={"path": local_path})
+            resp.raise_for_status()
+            return resp.json().get("skills", [])
+    except (httpx.HTTPError, ValueError, KeyError):
+        logger.warning("スキル一覧の取得に失敗: %s", local_path, exc_info=True)
+        return []
+
+
+def _build_skills_section(repos: list[CodeRepository] | None) -> str:
+    """利用可能なスキルをプロンプトに列挙する。
+
+    どのスキルを使うべきかは AI に判断させる。生成種別 → スキル名の固定表を
+    持たないのは、リポジトリごとにスキルの顔ぶれ・命名が違うため。
+    """
+    if not repos:
+        return ""
+
+    blocks: list[str] = []
+    for repo in repos:
+        skills = fetch_skills(repo.local_path)
+        if not skills:
+            continue
+        listed = "\n".join(
+            f"  - `{s['name']}`: {s.get('description', '')}"
+            # 親ディレクトリ由来（モノレポ共通スキル）は出自を明示する。
+            # リポジトリ固有のものを優先して選ばせたいため。
+            + ("" if s.get("origin", "self") == "self" else "  ※共通スキル")
+            for s in skills
+        )
+        blocks.append(f"- **{repo.name}** ({repo.local_path}):\n{listed}")
+
+    if not blocks:
+        return ""
+
+    return """
+
+## 利用可能なスキル
+対象リポジトリには、そのリポジトリの作法に合わせて作られた既存スキルがあります。
+**今回の生成内容に合致するスキルがあれば Skill ツールで実行し、その手順・出力形式に従ってください。**
+（例: 方針書を作るなら方針書用スキル、調査ならコード調査用スキル）
+合致するスキルが無ければ、通常どおりコードを読んで生成してください。
+
+**重要**: ファイル書き込みは許可されていません（保存は task-scope 側で行います）。
+スキルが docs/ 等への保存を指示していても**書き込もうとせず**、生成物を本文として
+そのまま出力してください。「保存できませんでした」等の断り書きも不要です。
+また、前置き・作業経過の説明は書かず、**成果物の本文だけ**を日本語で出力してください。
+
+""" + "\n".join(blocks)
+
+
 def _build_spec_prompt(ticket: Ticket, comments_text: str, repos: list[CodeRepository] | None = None) -> str:
     """方針書生成用のプロンプトを構築する"""
     return f"""以下の Backlog チケット情報を元に、実装方針書（設計ドキュメント）を作成してください。
@@ -376,7 +435,10 @@ def _build_code_reference_section(repos: list[CodeRepository] | None) -> str:
 
 ※ 全ファイルを読む必要はありません。チケットに関連する部分のみ調査してください。
 ※ 複数リポジトリがある場合、それぞれの絶対パスで参照してください。
-※ 方針書の「3. 対応方針」「4. 実装計画」にはコードから読み取った具体的なファイルパス・クラス名・メソッド名を含めてください。"""
+※ 方針書の「3. 対応方針」「4. 実装計画」にはコードから読み取った具体的なファイルパス・クラス名・メソッド名を含めてください。
+※ git log / git blame で該当箇所の変更経緯を確認すると精度が上がります。""" + _build_skills_section(
+        repos
+    )
 
 
 def _get_comments_text(ticket: Ticket) -> str:

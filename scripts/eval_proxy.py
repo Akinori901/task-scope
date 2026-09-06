@@ -24,13 +24,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 CLAUDE_PATH = shutil.which("claude") or "claude"
+DEFAULT_MODEL = "sonnet"
 
 # コードベース探索時に claude へ許可するツール。
 #
 # Skill: 対象リポジトリの .claude/skills/ に置かれた既存スキルをそのまま
 #   使わせるために必要。スキルはリポジトリごとに異なるので、どれを使うかは
 #   プロンプト側で列挙して指示する。
-# Bash: git log / git blame 等で変更履歴を参照させ、生成物の精度を上げるため。
+# Bash: git log / git blame 等で変更履歴を参照させ、生成物の精度を上げるために許可。
 #
 # 注意: Edit/Write は意図的に許可しない。生成はあくまで読み取りと文章生成であり、
 # 対象リポジトリのワーキングツリーを書き換えてよい場面ではない。
@@ -38,7 +39,6 @@ CLAUDE_PATH = shutil.which("claude") or "claude"
 # 承知の上（このプロキシは開発者自身のマシンでのみ動かす前提）。
 CODE_EXPLORATION_TOOLS = "Read,Glob,Grep,Skill,Bash"
 MAX_TURNS = "25"
-DEFAULT_MODEL = "sonnet"
 
 
 class ProxyTimeout(IntEnum):
@@ -111,6 +111,83 @@ def call_claude(prompt: str, model: str = DEFAULT_MODEL, max_tokens: int = 4096,
     return result.stdout.strip()
 
 
+def _read_skill_meta(skill_md: Path) -> dict | None:
+    """SKILL.md の frontmatter から name / description を読む。
+
+    YAML パーサは使わない（プロキシは標準ライブラリのみで動かす方針）。
+    frontmatter の単純な "key: value" 行だけを対象にする。
+    """
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    if end == -1:
+        return None
+
+    meta: dict[str, str] = {}
+    for line in text[3:end].splitlines():
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        key = key.strip()
+        if key in {"name", "description"}:
+            meta[key] = value.strip().strip("\"'")
+
+    if "name" not in meta:
+        meta["name"] = skill_md.parent.name
+    return meta
+
+
+# 親ディレクトリを何階層まで遡ってスキルを探すか。
+# モノレポ的な配置（親に共通スキル、その配下の各サービスディレクトリが個別に
+# スキルを持つ）で、子ディレクトリを repo として登録していても共通スキルを
+# 拾えるようにする。
+# Claude Code 自身も親を遡ってスキルを探すため、その挙動に揃える。
+SKILL_SEARCH_PARENT_LEVELS = 3
+
+
+def _collect_skills_in(skills_dir: Path, origin: str) -> list[dict]:
+    """1 つの skills ディレクトリからスキルを列挙する。"""
+    if not skills_dir.is_dir():
+        return []
+
+    found: list[dict] = []
+    for entry in sorted(skills_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        meta = _read_skill_meta(entry / "SKILL.md")
+        if meta:
+            meta["origin"] = origin
+            found.append(meta)
+    return found
+
+
+def list_skills(root: Path) -> list[dict]:
+    """root とその親ディレクトリの .claude/skills/*/SKILL.md を列挙する。
+
+    root 自身を優先し、同名スキルは近い階層のものを採用する
+    （子ディレクトリ側の上書きを尊重するため）。
+    """
+    root = root.resolve()
+    candidates = [root, *list(root.parents)[:SKILL_SEARCH_PARENT_LEVELS]]
+
+    found: list[dict] = []
+    seen: set[str] = set()
+    for base in candidates:
+        origin = "self" if base == root else str(base)
+        for meta in _collect_skills_in(base / ".claude" / "skills", origin):
+            name = meta["name"]
+            if name in seen:
+                continue  # より近い階層のスキルを優先
+            seen.add(name)
+            found.append(meta)
+    return found
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         content_length = int(self.headers.get("Content-Length", 0))
@@ -126,6 +203,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.path == "/browse-dirs":
             self._handle_browse_dirs(data)
             return
+        if self.path == "/list-skills":
+            self._handle_list_skills(data)
+            return
+        if self.path == "/path-exists":
+            self._handle_path_exists(data)
+            return
         if self.path == "/health":
             self._respond(200, {"status": "ok"})
             return
@@ -139,11 +222,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "prompt is required"})
             return
 
-        if self.path == "/evaluate":
-            self._handle_prompt(prompt, model, max_tokens, cwd)
-        elif self.path == "/generate-spec":
-            self._handle_prompt(prompt, model, max_tokens, cwd)
-        elif self.path == "/generate-qa":
+        # いずれのエンドポイントも同じ _handle_prompt を叩く。パスを分けるのは
+        # 用途をログで区別するためと、将来エンドポイント別に挙動を変えられるように。
+        prompt_paths = {
+            "/evaluate",
+            "/generate-spec",
+            "/generate-qa",
+            "/generate-report",   # 調査報告書
+            "/generate-plan",     # 実装計画書
+            "/generate-record",   # 実装/実行記録
+            "/generate-completion",  # 完了コメント
+        }
+        if self.path in prompt_paths:
             self._handle_prompt(prompt, model, max_tokens, cwd)
         else:
             self._respond(404, {"error": "Not found"})
@@ -175,6 +265,32 @@ class ProxyHandler(BaseHTTPRequestHandler):
             "parent": parent,
             "dirs": dirs,
         })
+
+    def _handle_list_skills(self, data: dict) -> None:
+        """指定ディレクトリで使えるスキル一覧を返す。
+
+        スキルはリポジトリごとに異なるため、生成種別に固定のスキル名を
+        割り当てるのではなく、実際に存在するものを都度拾う。
+        """
+        path = data.get("path")
+        if not path:
+            self._respond(400, {"error": "path is required"})
+            return
+
+        skills = list_skills(Path(path))
+        self._respond(200, {"skills": skills})
+
+    def _handle_path_exists(self, data: dict) -> None:
+        """ホスト上にディレクトリが存在するかを返す。
+
+        リポジトリのパスはホストの絶対パスなので、backend コンテナ内では
+        判定できない。「パス不在」の判定はここで行う。
+        """
+        path = data.get("path")
+        if not path:
+            self._respond(400, {"error": "path is required"})
+            return
+        self._respond(200, {"exists": Path(path).is_dir()})
 
     def _handle_prompt(self, prompt: str, model: str, max_tokens: int, cwd: str | None = None) -> None:
         try:
