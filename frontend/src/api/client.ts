@@ -204,6 +204,17 @@ export const triggerSync = (spaceId?: number) =>
 
 // --- Spaces ---
 
+/**
+ * 配列レスポンスを安全に取り出す。
+ *
+ * API がエラー時に `{"detail": "..."}` のようなオブジェクトを返すと、
+ * それをそのまま `.map()` すると画面全体がクラッシュする（`?.` は
+ * null/undefined しか守らないのでオブジェクトは素通りする）。
+ * ここで配列以外を空配列に潰しておけば、描画は空のまま復帰を待てる。
+ */
+export const toArray = <T>(data: unknown): T[] => (Array.isArray(data) ? (data as T[]) : []);
+
+
 export const fetchSpaces = () =>
   apiClient.get<BacklogSpace[]>("/spaces/");
 

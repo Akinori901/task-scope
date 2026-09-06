@@ -22,7 +22,12 @@ export default function PinnedTicketsList() {
   const queryClient = useQueryClient();
   const { data: pins } = useQuery({
     queryKey: ["pinned-tickets"],
-    queryFn: () => fetchPinnedTickets().then((r: { data: PinnedTicketData[] }) => r.data),
+    // エラー時は配列でなくエラーオブジェクトが返るため配列を保証する
+    // （`!pins` は truthy なオブジェクトを弾けず .map() で落ちる）
+    queryFn: () =>
+      fetchPinnedTickets().then((r: { data: PinnedTicketData[] }) =>
+        Array.isArray(r.data) ? r.data : [],
+      ),
   });
 
   const unpinMutation = useMutation({

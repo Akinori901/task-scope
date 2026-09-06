@@ -157,7 +157,11 @@ export default function TicketListPage() {
   const { data: ticketTags } = useTicketTags();
   const { data: unpostedSpecs } = useQuery({
     queryKey: ["unposted-specs"],
-    queryFn: () => fetchUnpostedSpecs().then((r: { data: unknown }) => r.data),
+    // API がエラーオブジェクトを返すと .map() で落ちるため配列を保証する
+    queryFn: () =>
+      fetchUnpostedSpecs().then((r: { data: unknown }) =>
+        Array.isArray(r.data) ? r.data : [],
+      ),
   });
   const queryClient = useQueryClient();
   const [bulkPosting, setBulkPosting] = useState(false);

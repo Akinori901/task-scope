@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchStatusNames } from "../api/client";
+import { fetchStatusNames, toArray } from "../api/client";
 import { parseSpaceId, useViewStore } from "../stores/viewStore";
 
 export const useStatusNames = (projectId?: number | null) => {
@@ -7,6 +7,6 @@ export const useStatusNames = (projectId?: number | null) => {
   const spaceFilter = parseSpaceId(spaceId);
   return useQuery({
     queryKey: ["status-names", spaceId, projectId ?? null],
-    queryFn: () => fetchStatusNames(spaceFilter, projectId).then((r) => r.data),
+    queryFn: () => fetchStatusNames(spaceFilter, projectId).then((r) => toArray<string>(r.data)),
   });
 };

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchCategoryNames } from "../api/client";
+import { fetchCategoryNames, toArray } from "../api/client";
 import { parseSpaceId, useViewStore } from "../stores/viewStore";
 
 export const useCategoryNames = (projectId?: number | null) => {
@@ -7,6 +7,6 @@ export const useCategoryNames = (projectId?: number | null) => {
   const spaceFilter = parseSpaceId(spaceId);
   return useQuery({
     queryKey: ["category-names", spaceId, projectId ?? null],
-    queryFn: () => fetchCategoryNames(spaceFilter, projectId).then((r) => r.data),
+    queryFn: () => fetchCategoryNames(spaceFilter, projectId).then((r) => toArray<string>(r.data)),
   });
 };

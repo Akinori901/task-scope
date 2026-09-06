@@ -16,17 +16,19 @@ interface Props {
 }
 
 export default function WorkloadChart({ data }: Props) {
+  // API がエラーオブジェクトを返すと data は undefined になりうるため正規化する
+  const rows = Array.isArray(data) ? data : [];
   return (
     <Card>
       <CardContent>
         <Typography variant="h6" gutterBottom>
           担当者別負荷
         </Typography>
-        {data.length === 0 ? (
+        {rows.length === 0 ? (
           <Typography color="text.secondary">データなし</Typography>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={data}>
+            <BarChart data={rows}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />
               <YAxis />

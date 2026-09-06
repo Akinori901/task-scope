@@ -31,17 +31,21 @@ const CLOSED_STATUS_NAMES = new Set(["完了", "Closed", "Done", "Resolved", "Cl
 export default function StatusChart({ data }: Props) {
   const [excludeCompleted, setExcludeCompleted] = useState(false);
 
+  // API がエラーオブジェクトを返すと data は undefined になりうる。
+  // ここで配列に正規化しておかないと .some()/.filter() で画面全体が落ちる。
+  const rows = useMemo(() => (Array.isArray(data) ? data : []), [data]);
+
   const shown = useMemo(
     () =>
       excludeCompleted
-        ? data.filter((d) => !CLOSED_STATUS_NAMES.has(d.status))
-        : data,
-    [data, excludeCompleted],
+        ? rows.filter((d) => !CLOSED_STATUS_NAMES.has(d.status))
+        : rows,
+    [rows, excludeCompleted],
   );
 
   const hasCompleted = useMemo(
-    () => data.some((d) => CLOSED_STATUS_NAMES.has(d.status)),
-    [data],
+    () => rows.some((d) => CLOSED_STATUS_NAMES.has(d.status)),
+    [rows],
   );
 
   return (

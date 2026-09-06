@@ -3,8 +3,9 @@ import {
   deleteMilestone,
   fetchMilestones,
   updateMilestone,
+  toArray,
 } from "../api/client";
-import type { MilestoneInput } from "../api/types";
+import type { MilestoneInput, MilestoneData } from "../api/types";
 import { parseSpaceId, useViewStore } from "../stores/viewStore";
 
 export const useMilestones = (projectId?: number) => {
@@ -12,7 +13,7 @@ export const useMilestones = (projectId?: number) => {
   const spaceFilter = parseSpaceId(spaceId);
   return useQuery({
     queryKey: ["milestones", spaceId, projectId],
-    queryFn: () => fetchMilestones(spaceFilter, projectId).then((r) => r.data),
+    queryFn: () => fetchMilestones(spaceFilter, projectId).then((r) => toArray<MilestoneData>(r.data)),
   });
 };
 
