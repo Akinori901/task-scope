@@ -18,6 +18,10 @@ import GradingIcon from "@mui/icons-material/Grading";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
+import SearchIcon from "@mui/icons-material/Search";
+import HistoryEduIcon from "@mui/icons-material/HistoryEdu";
+import MarkChatReadIcon from "@mui/icons-material/MarkChatRead";
+import AssignmentIcon from "@mui/icons-material/Assignment";
 import SendIcon from "@mui/icons-material/Send";
 import {
   Accordion,
@@ -53,20 +57,23 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BackgroundTask, PinnedTicketData } from "../api/client";
 import { fetchBackgroundTasks, fetchPinnedTickets, pinTicket, unpinTicket } from "../api/client";
 import { exportQaExcel } from "../utils/exportQaExcel";
+import { isQaDownloaded, markQaDownloaded } from "../utils/taskState";
 import type { CustomField, TicketComment } from "../api/types";
 import DifficultyRadarChart from "../components/DifficultyRadarChart";
 import PriorityChip from "../components/PriorityChip";
 import StatusChip from "../components/StatusChip";
+import QaItemsView from "../components/QaItemsView";
 import {
   useCreateComment,
   useDeleteComment,
   useEvaluateTicket,
+  useGenerateDocument,
   useGenerateQa,
   useGenerateSpec,
   usePostCommentToBacklog,
@@ -92,7 +99,14 @@ const FEASIBILITY_LABELS = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TAG_DEFS: { value: string; label: string; color: "info" | "success" | "warning" | "error" | "secondary"; icon: any }[] = [
+  // 前半は作業順（ボタンの ACTION_ORDER と揃える）。
+  // 後半は AI 生成に紐づかない手動タグ。
+  { value: "survey", label: "調査報告書", color: "info", icon: <SearchIcon fontSize="inherit" /> },
   { value: "spec", label: "方針書", color: "info", icon: <DescriptionIcon fontSize="inherit" /> },
+  { value: "plan", label: "実装計画書", color: "info", icon: <GradingIcon fontSize="inherit" /> },
+  { value: "record", label: "実行記録", color: "success", icon: <HistoryEduIcon fontSize="inherit" /> },
+  { value: "qa", label: "QA項目", color: "success", icon: <FactCheckIcon fontSize="inherit" /> },
+  { value: "completion", label: "完了報告", color: "success", icon: <MarkChatReadIcon fontSize="inherit" /> },
   { value: "pr", label: "PR", color: "success", icon: <CodeIcon fontSize="inherit" /> },
   { value: "report", label: "報告書", color: "secondary", icon: <AssignmentTurnedInIcon fontSize="inherit" /> },
   { value: "decision", label: "決定事項", color: "warning", icon: <GavelIcon fontSize="inherit" /> },
@@ -103,6 +117,34 @@ function getTagDef(tag: string) {
   return TAG_DEFS.find((t) => t.value === tag);
 }
 
+// AI 生成ボタン（方針書・QA以外の4種別）。kind は backend の generate/<kind>/ と一致。
+const DOC_BUTTONS: {
+  kind: "survey" | "plan" | "record" | "completion";
+  label: string;
+  tooltip: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: any;
+}[] = [
+  { kind: "survey", label: "調査報告書", tooltip: "チケット内容と関連コードから調査報告書を AI で作成します", icon: <SearchIcon /> },
+  { kind: "plan", label: "実装計画書", tooltip: "チケット内容と関連コードから実装計画書を AI で作成します", icon: <GradingIcon /> },
+  { kind: "record", label: "実行記録", tooltip: "チケット内容から実行記録のドラフトを AI で作成します", icon: <HistoryEduIcon /> },
+  { kind: "completion", label: "完了報告", tooltip: "依頼者へ返す完了報告のドラフトを AI で作成します", icon: <AssignmentIcon /> },
+];
+
+// 画面のボタン並び順 = 実際の作業順。
+// 採点 → 調査報告書 → 方針書 → 実装計画書 → 実行記録 → QA項目作成 → 完了報告。
+// "spec"(方針書) と "qa" は専用のミューテーションを持つのでここでは印だけ置き、
+// 描画時に個別のボタンへ差し替える。
+const ACTION_ORDER = [
+  "evaluate",
+  "survey",
+  "spec",
+  "plan",
+  "record",
+  "qa",
+  "completion",
+] as const;
+
 export default function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -112,6 +154,7 @@ export default function TicketDetailPage() {
   const evalMutation = useEvaluateTicket(ticketId);
   const specMutation = useGenerateSpec(ticketId);
   const qaMutation = useGenerateQa(ticketId);
+  const docMutation = useGenerateDocument(ticketId);
   const postMutation = usePostCommentToBacklog(ticketId);
   const tagsMutation = useUpdateCommentTags(ticketId);
   const createMutation = useCreateComment(ticketId);
@@ -122,7 +165,10 @@ export default function TicketDetailPage() {
   const queryClient = useQueryClient();
   const { data: pinnedTickets } = useQuery({
     queryKey: ["pinned-tickets"],
-    queryFn: () => fetchPinnedTickets().then((r: { data: PinnedTicketData[] }) => r.data),
+    queryFn: () =>
+      fetchPinnedTickets().then((r: { data: PinnedTicketData[] }) =>
+        Array.isArray(r.data) ? r.data : [],
+      ),
   });
   const currentPin = pinnedTickets?.find((p: PinnedTicketData) => p.ticket.id === ticketId);
   const pinMutation = useMutation({
@@ -153,7 +199,10 @@ export default function TicketDetailPage() {
   // QA 生成タスクの完了を監視し、完了したら Excel を自動ダウンロードする
   const { data: bgTasks } = useQuery({
     queryKey: ["background-tasks"],
-    queryFn: () => fetchBackgroundTasks().then((r: { data: BackgroundTask[] }) => r.data),
+    queryFn: () =>
+      fetchBackgroundTasks().then((r: { data: BackgroundTask[] }) =>
+        Array.isArray(r.data) ? r.data : [],
+      ),
     refetchInterval: (query) => {
       const data = query.state.data as BackgroundTask[] | undefined;
       return data?.some((t) => t.status === "running") ? 3000 : false;
@@ -166,7 +215,6 @@ export default function TicketDetailPage() {
     summary: string;
     items: NonNullable<BackgroundTask["qa_items"]>;
   } | null>(null);
-  const downloadedQaTasks = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!bgTasks) return;
     for (const task of bgTasks) {
@@ -175,9 +223,10 @@ export default function TicketDetailPage() {
         task.status === "completed" &&
         task.ticket_id === ticketId &&
         task.qa_items &&
-        !downloadedQaTasks.current.has(task.task_id)
+        // localStorage に記録するので、リロードしても再ダウンロードしない
+        !isQaDownloaded(task.task_id)
       ) {
-        downloadedQaTasks.current.add(task.task_id);
+        markQaDownloaded(task.task_id);
         const items = task.qa_items;
         const issueKey = task.issue_key;
         const summary = task.summary ?? "";
@@ -485,69 +534,104 @@ export default function TicketDetailPage() {
       )}
 
       {/* Actions */}
-      <Box sx={{ display: "flex", gap: 2 }}>
-        <Button
-          variant="contained"
-          color={needsReEval ? "error" : "primary"}
-          startIcon={
-            evalMutation.isPending ? (
-              <CircularProgress size={16} color="inherit" />
-            ) : (
-              <GradingIcon />
-            )
+      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+        {ACTION_ORDER.map((action) => {
+          if (action === "evaluate") {
+            return (
+              <Button
+                key={action}
+                variant="contained"
+                color={needsReEval ? "error" : "primary"}
+                startIcon={
+                  evalMutation.isPending ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <GradingIcon />
+                  )
+                }
+                onClick={() => evalMutation.mutate()}
+                disabled={evalMutation.isPending}
+              >
+                {needsReEval ? "再採点（推奨）" : evaluation ? "再採点" : "採点"}
+              </Button>
+            );
           }
-          onClick={() => evalMutation.mutate()}
-          disabled={evalMutation.isPending}
-        >
-          {needsReEval ? "再採点（推奨）" : evaluation ? "再採点" : "採点"}
-        </Button>
-        <Tooltip
-          title={
-            ticket.matched_repositories?.length
-              ? `コード参照: ${ticket.matched_repositories.map((r: { name: string }) => r.name).join(", ")}`
-              : "コード参照なし — テキスト情報のみで生成"
+
+          if (action === "spec") {
+            return (
+              <Tooltip
+                key={action}
+                title={
+                  ticket.matched_repositories?.length
+                    ? `コード参照: ${ticket.matched_repositories.map((r: { name: string }) => r.name).join(", ")}`
+                    : "コード参照なし — テキスト情報のみで生成"
+                }
+              >
+                <Button
+                  variant="outlined"
+                  startIcon={
+                    specMutation.isPending || specMutation.isSuccess ? (
+                      <CircularProgress size={16} />
+                    ) : (
+                      <DescriptionIcon />
+                    )
+                  }
+                  onClick={() => {
+                    specMutation.mutate(undefined, {
+                      onSuccess: () => setSnackMessage("方針書の生成を開始しました（バックグラウンドで実行中）"),
+                      onError: () => setSnackMessage("方針書生成の開始に失敗しました"),
+                    });
+                  }}
+                  disabled={specMutation.isPending || specMutation.isSuccess}
+                >
+                  {specMutation.isSuccess ? "生成中…" : `方針書${hasSpec ? "再生成" : "生成"}`}
+                </Button>
+              </Tooltip>
+            );
           }
-        >
-          <Button
-            variant="outlined"
-            startIcon={
-              specMutation.isPending ? (
-                <CircularProgress size={16} />
-              ) : specMutation.isSuccess ? (
-                <CircularProgress size={16} />
-              ) : (
-                <DescriptionIcon />
-              )
-            }
-            onClick={() => {
-              specMutation.mutate(undefined, {
-                onSuccess: () => setSnackMessage("方針書の生成を開始しました（バックグラウンドで実行中）"),
-                onError: () => setSnackMessage("方針書生成の開始に失敗しました"),
-              });
-            }}
-            disabled={specMutation.isPending || specMutation.isSuccess}
-          >
-            {specMutation.isSuccess ? "生成中…" : `方針書${hasSpec ? "再生成" : "生成"}`}
-          </Button>
-        </Tooltip>
-        <Tooltip title="チケット内容から QA テスト項目を AI で作成し、Excel でダウンロードします">
-          <Button
-            variant="outlined"
-            startIcon={
-              qaRunning ? <CircularProgress size={16} /> : <FactCheckIcon />
-            }
-            onClick={() => {
-              qaMutation.mutate(undefined, {
-                onSuccess: () =>
-                  setSnackMessage("QA項目の作成を開始しました（完了後に自動でExcelをダウンロードします）"),
-                onError: () => setSnackMessage("QA項目作成の開始に失敗しました"),
-              });
-            }}
-            disabled={qaRunning}
-          >
-            {qaRunning ? "作成中…" : "QA項目作成"}
-          </Button>
-        </Tooltip>
+
+          if (action === "qa") {
+            return (
+              <Tooltip key={action} title="チケット内容から QA テスト項目を AI で作成し、Excel でダウンロードします">
+                <Button
+                  variant="outlined"
+                  startIcon={qaRunning ? <CircularProgress size={16} /> : <FactCheckIcon />}
+                  onClick={() => {
+                    qaMutation.mutate(undefined, {
+                      onSuccess: () =>
+                        setSnackMessage("QA項目の作成を開始しました（完了後に自動でExcelをダウンロードします）"),
+                      onError: () => setSnackMessage("QA項目作成の開始に失敗しました"),
+                    });
+                  }}
+                  disabled={qaRunning}
+                >
+                  {qaRunning ? "作成中…" : "QA項目作成"}
+                </Button>
+              </Tooltip>
+            );
+          }
+
+          const b = DOC_BUTTONS.find((d) => d.kind === action);
+          if (!b) return null;
+          const running = docMutation.isPending && docMutation.variables === b.kind;
+          return (
+            <Tooltip key={b.kind} title={b.tooltip}>
+              <Button
+                variant="outlined"
+                startIcon={running ? <CircularProgress size={16} /> : b.icon}
+                onClick={() => {
+                  docMutation.mutate(b.kind, {
+                    onSuccess: () => setSnackMessage(`${b.label}の生成を開始しました（バックグラウンドで実行中）`),
+                    onError: () => setSnackMessage(`${b.label}生成の開始に失敗しました`),
+                  });
+                }}
+                disabled={docMutation.isPending}
+              >
+                {running ? "生成中…" : b.label}
+              </Button>
+            </Tooltip>
+          );
+        })}
       </Box>
 
       {/* QA項目 手動ダウンロード（自動DLがブロックされた場合の保険） */}
@@ -763,6 +847,11 @@ export default function TicketDetailPage() {
                   <Typography variant="body2" color="text.secondary">
                     {t.value === "spec" && "— 実装方針書。AI生成または手動作成"}
                     {t.value === "pr" && "— PR・実装リンクの記録"}
+                    {t.value === "survey" && "— 調査報告書。原因調査の結果と対処案。AI生成または手動作成"}
+                    {t.value === "plan" && "— 実装計画書。変更対象と手順。AI生成または手動作成"}
+                    {t.value === "record" && "— 実行記録。実施内容の記録。AI生成または手動作成"}
+                    {t.value === "qa" && "— QA項目。テスト項目一覧。AI生成（Excelダウンロード可）"}
+                    {t.value === "completion" && "— 完了報告。依頼者への完了報告ドラフト。AI生成または手動作成"}
                     {t.value === "report" && "— 完了報告書・作業報告"}
                     {t.value === "decision" && "— 仕様決定・合意事項の記録"}
                     {t.value === "blocker" && "— 障害・ブロッカー報告"}
@@ -907,6 +996,9 @@ export default function TicketDetailPage() {
                         </Button>
                       </Box>
                     </Box>
+                  ) : comment.tags?.includes("qa") ? (
+                    // QA コメントの中身は生の JSON なので、そのまま出さず表に整形する
+                    <QaItemsView content={comment.content} />
                   ) : (
                     <Typography
                       variant="body2"

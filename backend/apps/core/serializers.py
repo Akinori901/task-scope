@@ -167,6 +167,10 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
     has_evaluation = serializers.SerializerMethodField()
     has_spec = serializers.SerializerMethodField()
     has_report = serializers.SerializerMethodField()
+    has_survey = serializers.SerializerMethodField()
+    has_plan = serializers.SerializerMethodField()
+    has_completion = serializers.SerializerMethodField()
+    has_qa = serializers.SerializerMethodField()
     needs_re_evaluation = serializers.SerializerMethodField()
     new_comment_count = serializers.SerializerMethodField()
     spec_readiness = serializers.SerializerMethodField()
@@ -209,6 +213,10 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
             "has_evaluation",
             "has_spec",
             "has_report",
+            "has_survey",
+            "has_plan",
+            "has_completion",
+            "has_qa",
             "needs_re_evaluation",
             "new_comment_count",
             "spec_readiness",
@@ -252,6 +260,25 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
         if hasattr(obj, "_has_report"):
             return obj._has_report  # type: ignore[return-value]
         return Comment.objects.filter(ticket=obj, tags__contains=["report"]).exists()
+
+    def _has_tag(self, obj: Ticket, tag: str) -> bool:
+        """タグ付きコメントの有無。一覧では annotate 済みの値を使う。"""
+        cached = getattr(obj, f"_has_{tag}", None)
+        if cached is not None:
+            return bool(cached)
+        return Comment.objects.filter(ticket=obj, tags__contains=[tag]).exists()
+
+    def get_has_survey(self, obj: Ticket) -> bool:
+        return self._has_tag(obj, "survey")
+
+    def get_has_plan(self, obj: Ticket) -> bool:
+        return self._has_tag(obj, "plan")
+
+    def get_has_completion(self, obj: Ticket) -> bool:
+        return self._has_tag(obj, "completion")
+
+    def get_has_qa(self, obj: Ticket) -> bool:
+        return self._has_tag(obj, "qa")
 
     def get_needs_re_evaluation(self, obj: Ticket) -> bool:
         try:

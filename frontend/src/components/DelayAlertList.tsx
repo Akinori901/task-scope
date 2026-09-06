@@ -1,6 +1,9 @@
 import ArticleIcon from "@mui/icons-material/Article";
 import DescriptionIcon from "@mui/icons-material/Description";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
 import GradingIcon from "@mui/icons-material/Grading";
+import MarkChatReadIcon from "@mui/icons-material/MarkChatRead";
+import SearchIcon from "@mui/icons-material/Search";
 import WarningIcon from "@mui/icons-material/Warning";
 import {
   Box,
@@ -15,6 +18,24 @@ import {
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import type { Ticket } from "../api/types";
+
+// 一覧に出す成果物アイコン。並びは作業順（チケット詳細のボタンと揃える）。
+// 「報告書」ひとまとめだった表示を成果物ごとに分けている。
+const DELIVERABLES: {
+  tag: string;
+  field: keyof Ticket;
+  label: string;
+  color: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: any;
+}[] = [
+  { tag: "survey", field: "has_survey", label: "調査報告書", color: "info.main", icon: SearchIcon },
+  { tag: "spec", field: "has_spec", label: "方針書", color: "info.main", icon: DescriptionIcon },
+  { tag: "plan", field: "has_plan", label: "実装計画", color: "info.main", icon: GradingIcon },
+  { tag: "completion", field: "has_completion", label: "完了報告", color: "success.main", icon: MarkChatReadIcon },
+  { tag: "qa", field: "has_qa", label: "QA項目", color: "success.main", icon: FactCheckIcon },
+  { tag: "report", field: "has_report", label: "報告書", color: "secondary.main", icon: ArticleIcon },
+];
 
 interface Props {
   tickets: Ticket[];
@@ -50,42 +71,35 @@ export default function DelayAlertList({ tickets }: Props) {
                   secondary={`${ticket.project_key} / ${ticket.assignee_name ?? "未割当"}`}
                 />
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: 1, flexShrink: 0 }}>
-                  <Tooltip title={ticket.has_evaluation ? "評価済" : "未評価"}>
+                  <Tooltip title={ticket.has_evaluation ? "採点済" : "未採点"}>
                     <GradingIcon
                       fontSize="small"
                       sx={{ color: ticket.has_evaluation ? "success.main" : "text.disabled" }}
                     />
                   </Tooltip>
-                  <Tooltip title={ticket.has_spec ? "方針書あり — クリックで方針書を表示" : "方針書なし"}>
-                    <DescriptionIcon
-                      fontSize="small"
-                      sx={{
-                        color: ticket.has_spec ? "info.main" : "text.disabled",
-                        cursor: ticket.has_spec ? "pointer" : "default",
-                      }}
-                      onClick={(e: { stopPropagation: () => void }) => {
-                        if (ticket.has_spec) {
-                          e.stopPropagation();
-                          navigate(`/tickets/${ticket.id}?tag=spec`);
-                        }
-                      }}
-                    />
-                  </Tooltip>
-                  <Tooltip title={ticket.has_report ? "報告書あり — クリックで報告書を表示" : "報告書なし"}>
-                    <ArticleIcon
-                      fontSize="small"
-                      sx={{
-                        color: ticket.has_report ? "success.main" : "text.disabled",
-                        cursor: ticket.has_report ? "pointer" : "default",
-                      }}
-                      onClick={(e: { stopPropagation: () => void }) => {
-                        if (ticket.has_report) {
-                          e.stopPropagation();
-                          navigate(`/tickets/${ticket.id}?tag=report`);
-                        }
-                      }}
-                    />
-                  </Tooltip>
+                  {DELIVERABLES.map((d) => {
+                    const present = Boolean(ticket[d.field]);
+                    const Icon = d.icon;
+                    return (
+                      <Tooltip
+                        key={d.tag}
+                        title={present ? `${d.label}あり — クリックで表示` : `${d.label}なし`}
+                      >
+                        <Icon
+                          fontSize="small"
+                          sx={{
+                            color: present ? d.color : "text.disabled",
+                            cursor: present ? "pointer" : "default",
+                          }}
+                          onClick={(e: { stopPropagation: () => void }) => {
+                            if (!present) return;
+                            e.stopPropagation();
+                            navigate(`/tickets/${ticket.id}?tag=${d.tag}`);
+                          }}
+                        />
+                      </Tooltip>
+                    );
+                  })}
                   {ticket.status_changed_at &&
                     Date.now() - new Date(ticket.status_changed_at).getTime() < 86400000 && (
                     <Tooltip title={`${ticket.previous_status_name ?? "?"} → ${ticket.status_name}`}>

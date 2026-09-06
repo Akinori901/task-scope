@@ -56,7 +56,10 @@ export default function BackgroundTaskBar() {
   // 「表示」は該当コメントへ移動するだけ。通知は消さない
   // （消すかどうかは × で明示的に決める）。
   const handleNavigate = (task: BackgroundTask) => {
-    navigate(task.task_type ? `/tickets/${task.ticket_id}?tag=${task.task_type}` : `/tickets/${task.ticket_id}`);
+    // "evaluate" は TAG_DEFS に存在しない値のため、そのまま ?tag=evaluate を
+    // 付けるとタグ一致せず不整合になる。その場合はタグなしで遷移する。
+    const tag = task.task_type === "evaluate" ? "" : task.task_type;
+    navigate(tag ? `/tickets/${task.ticket_id}?tag=${tag}` : `/tickets/${task.ticket_id}`);
   };
 
   // 完了/失敗タスクがあればチケット詳細も再取得

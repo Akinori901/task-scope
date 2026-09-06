@@ -41,7 +41,7 @@ from apps.core.serializers import (
 import httpx as _httpx
 from django.conf import settings as _settings
 
-from apps.core.services.evaluation_service import evaluate_ticket, generate_qa_items, generate_spec
+from apps.core.services.evaluation_service import evaluate_ticket, generate_document, generate_qa_items, generate_spec
 from apps.core.services.sync_service import NOT_STARTED_STATUS_NAMES, SyncService
 
 logger = logging.getLogger(__name__)
@@ -210,6 +210,18 @@ class TicketListView(generics.ListAPIView[Ticket]):
                 ),
                 _has_report=Exists(
                     Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["report"])
+                ),
+                _has_survey=Exists(
+                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["survey"])
+                ),
+                _has_plan=Exists(
+                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["plan"])
+                ),
+                _has_completion=Exists(
+                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["completion"])
+                ),
+                _has_qa=Exists(
+                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["qa"])
                 ),
                 _real_comment_count=Count(
                     "comments", filter=Q(comments__content__gt="")
@@ -462,6 +474,74 @@ class TicketGenerateQAView(APIView):
         thread = threading.Thread(
             target=_run_qa_generation,
             args=(task_id, pk),
+            daemon=True,
+        )
+        thread.start()
+
+        return Response(
+            {"task_id": task_id, "status": "running"},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+# 調査報告書 / 実装計画書 / 実装記録 / 完了コメント の生成種別
+# URL の <str:kind> で受け取り、evaluation_service.generate_document に渡す。
+_DOCUMENT_KINDS = {"survey", "plan", "record", "completion"}
+
+
+def _run_document_generation(task_id: str, ticket_id: int, kind: str) -> None:
+    """バックグラウンドでドキュメント生成（survey/plan/record/completion）を実行"""
+    import django
+    django.setup()
+    try:
+        ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=ticket_id)
+        comment = generate_document(ticket, kind)
+        with _bg_tasks_lock:
+            _bg_tasks[task_id].update({
+                "status": "completed",
+                "comment_id": comment.pk,
+                "issue_key": ticket.issue_key,
+            })
+    except Exception as e:
+        logger.exception("Background %s generation failed for ticket %d", kind, ticket_id)
+        with _bg_tasks_lock:
+            _bg_tasks[task_id].update({
+                "status": "failed",
+                "error": str(e),
+            })
+
+
+class TicketGenerateDocumentView(APIView):
+    """調査報告書 / 実装計画書 / 実装記録 / 完了コメント 生成 API（バックグラウンド実行）"""
+
+    def post(self, request: Request, pk: int, kind: str) -> Response:
+        if kind not in _DOCUMENT_KINDS:
+            return Response(
+                {"error": f"Unknown kind: {kind}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=pk)
+        except Ticket.DoesNotExist:
+            return Response(
+                {"error": "Ticket not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        task_id = str(uuid.uuid4())
+        with _bg_tasks_lock:
+            _bg_tasks[task_id] = {
+                "status": "running",
+                "task_type": kind,
+                "ticket_id": pk,
+                "issue_key": ticket.issue_key,
+                "summary": ticket.summary,
+                "started_at": timezone.now().isoformat(),
+            }
+
+        thread = threading.Thread(
+            target=_run_document_generation,
+            args=(task_id, pk, kind),
             daemon=True,
         )
         thread.start()
