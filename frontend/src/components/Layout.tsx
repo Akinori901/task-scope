@@ -48,7 +48,7 @@ export default function Layout() {
   const syncMutation = useSync();
   const { data: spaces } = useSpaces();
   const { data: jiraSpaces } = useJiraSpaces();
-  useAutoSync(spaces);
+  useAutoSync(spaces, jiraSpaces);
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();

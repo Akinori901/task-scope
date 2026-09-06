@@ -662,6 +662,7 @@ export default function SettingsPage() {
                     <TableCell sx={{ fontWeight: 700 }}>URL</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>メール</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>API トークン</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>自動同期</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>最終同期</TableCell>
                     <TableCell sx={{ fontWeight: 700 }} align="right">操作</TableCell>
                   </TableRow>
@@ -686,6 +687,25 @@ export default function SettingsPage() {
                         <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
                           {space.api_token_masked}
                         </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          size="small"
+                          value={space.sync_interval_minutes}
+                          onChange={(e) => {
+                            updateJiraMutation.mutate({
+                              id: space.id,
+                              data: { sync_interval_minutes: e.target.value as number },
+                            });
+                          }}
+                          sx={{ minWidth: 100, fontSize: 13 }}
+                        >
+                          <MenuItem value={0}>手動のみ</MenuItem>
+                          <MenuItem value={30}>30分</MenuItem>
+                          <MenuItem value={60}>1時間</MenuItem>
+                          <MenuItem value={120}>2時間</MenuItem>
+                          <MenuItem value={240}>4時間</MenuItem>
+                        </Select>
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" color="text.secondary">
