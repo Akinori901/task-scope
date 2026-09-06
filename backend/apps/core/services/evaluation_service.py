@@ -669,3 +669,188 @@ def generate_spec(ticket: Ticket, comments_text: str | None = None) -> Comment:
         logger.warning("Failed to save spec file for %s", ticket.issue_key, exc_info=True)
 
     return comment
+
+
+def _write_doc_file(out_dir: Path, ticket: Ticket, content: str, kind: str) -> None:
+    """生成物をローカル docs に保存する（失敗しても本処理は止めない）。"""
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{ticket.issue_key}.md"
+        path.write_text(content, encoding="utf-8")
+        logger.info("%s saved to %s", kind, path)
+    except OSError:
+        logger.warning("Failed to save %s for %s", kind, ticket.issue_key, exc_info=True)
+
+
+def _build_ticket_header(ticket: Ticket, comments_text: str) -> str:
+    """各生成プロンプト共通のチケット情報ヘッダ（説明・コメントを含む）"""
+    return f"""## チケット情報
+- キー: {ticket.issue_key}
+- 件名: {ticket.summary}
+- 種別: {ticket.issue_type}
+- ステータス: {ticket.status_name}
+- 優先度: {ticket.priority_name}
+- 担当者: {ticket.assignee.name if ticket.assignee else "未割当"}
+- 開始日: {ticket.start_date or "未設定"}
+- 期限: {ticket.due_date or "未設定"}
+{f'''
+## カスタム属性
+{_format_custom_fields(ticket)}''' if ticket.custom_fields else ""}
+
+## 説明
+{ticket.description or "(説明なし)"}
+
+## コメント
+{comments_text or "(コメントなし)"}"""
+
+
+def _build_report_prompt(ticket: Ticket, comments_text: str, repos: list[CodeRepository] | None = None) -> str:
+    """調査報告書生成用のプロンプトを構築する"""
+    header = _build_ticket_header(ticket, comments_text)
+    return f"""以下の Backlog チケット情報と（あれば）関連コードを元に、**調査報告書**を作成してください。
+不具合・問い合わせの原因を技術的に調査し、根本原因と対処案を報告する文書です。
+
+{header}
+
+## 出力形式
+Markdown 形式で以下の構成で作成してください。
+
+# 調査報告書: {ticket.issue_key} {ticket.summary}
+
+## 1. 調査依頼の概要
+何を調査したか、依頼の背景
+
+## 2. 事象・再現条件
+発生している事象、再現手順・条件
+
+## 3. 調査内容
+確認した箇所（コード・データ・設定）と、その結果わかった事実
+
+## 4. 原因
+根本原因の特定（推定の場合はその旨と根拠）
+
+## 5. 対処方針
+恒久対応・暫定対応の案。影響範囲とリスク
+
+## 6. 未確認事項・要確認
+情報不足で判断できない点、依頼者・関係者に確認すべき事項""" + _build_code_reference_section(repos)
+
+
+def _build_plan_prompt(ticket: Ticket, comments_text: str, repos: list[CodeRepository] | None = None) -> str:
+    """実装計画書生成用のプロンプトを構築する"""
+    header = _build_ticket_header(ticket, comments_text)
+    return f"""以下の Backlog チケット情報と（あれば）関連コードを元に、**実装計画書**を作成してください。
+実際に手を動かす前提で、変更対象と手順を具体化した文書です。
+
+{header}
+
+## 出力形式
+Markdown 形式で以下の構成で作成してください。
+
+# 実装計画書: {ticket.issue_key} {ticket.summary}
+
+## 1. 目的
+この実装で達成すること
+
+## 2. 変更対象
+修正・追加するファイル/モジュール/テーブル（関連コードがあれば具体的なパスで）
+
+## 3. 実装手順
+着手順に番号付きで。各ステップの作業内容
+
+## 4. 影響範囲と考慮点
+既存機能への影響、後方互換、データ移行の要否
+
+## 5. テスト計画
+確認すべき正常系・異常系。回帰確認の範囲
+
+## 6. リスクとロールバック
+想定リスクと、問題時の切り戻し方針""" + _build_code_reference_section(repos)
+
+
+def _build_record_prompt(ticket: Ticket, comments_text: str, repos: list[CodeRepository] | None = None) -> str:
+    """実装/実行記録生成用のプロンプトを構築する"""
+    header = _build_ticket_header(ticket, comments_text)
+    return f"""以下の Backlog チケット情報と（あれば）関連コードを元に、**実装/実行記録**のドラフトを作成してください。
+実施した作業の記録として残す文書です。コメント等から読み取れる実施内容を整理し、
+不明な部分は「（要記入）」として枠だけ用意してください。
+
+{header}
+
+## 出力形式
+Markdown 形式で以下の構成で作成してください。
+
+# 実装/実行記録: {ticket.issue_key} {ticket.summary}
+
+## 1. 実施内容
+実際に行った作業（コメント・説明から読み取れる範囲で。不明なら「（要記入）」）
+
+## 2. 変更点
+修正したファイル・データ・設定の一覧
+
+## 3. 実行手順・コマンド
+実行した手順や適用コマンド（判明している範囲で）
+
+## 4. 確認結果
+動作確認・テストの結果
+
+## 5. 残課題・申し送り
+未完了事項、次工程への引き継ぎ""" + _build_code_reference_section(repos)
+
+
+def _build_completion_prompt(ticket: Ticket, comments_text: str, repos: list[CodeRepository] | None = None) -> str:
+    """完了コメント生成用のプロンプトを構築する"""
+    header = _build_ticket_header(ticket, comments_text)
+    return f"""以下の Backlog チケット情報を元に、依頼者へ返す**完了コメント**のドラフトを作成してください。
+対応が完了したことを依頼者に報告する、丁寧でわかりやすい文面です。
+
+{header}
+
+## 出力要件
+- 依頼者（技術者でない場合もある）に伝わる、丁寧な日本語の文面にする
+- 「対応した内容」「結果どうなったか」「依頼者に確認・お願いしたいこと」を簡潔に含める
+- チケットの説明・コメントから読み取れない具体値（金額・件数・日付など）は「（要確認）」と明示し、断定しない
+- Markdown の見出しは不要。そのまま Backlog コメントに貼れる本文のみを出力する
+- 署名や宛名のテンプレート（「〇〇様」等）は先頭に付けてよい"""
+
+
+# ドキュメント系の生成物はローカル docs にもファイル保存する（方針書 POLICIES_DIR と同様）。
+# ルートは方針書と揃えて /app/docs 配下（Docker で docs をローカルにマウントしている前提）。
+DOCS_ROOT = POLICIES_DIR.parent  # /app/docs
+
+# 生成種別 → (プロンプトビルダ, proxy エンドポイント, コメントタグ, docs サブディレクトリ名)
+# docs_subdir が None の種別（完了コメント）はファイル保存しない（Backlog コメント下書きのため）。
+_GENERATION_KINDS = {
+    "survey": (_build_report_prompt, "/generate-report", "survey", "surveys"),
+    "plan": (_build_plan_prompt, "/generate-plan", "plan", "plans"),
+    "record": (_build_record_prompt, "/generate-record", "record", "records"),
+    "completion": (_build_completion_prompt, "/generate-completion", "completion", None),
+}
+
+
+def generate_document(ticket: Ticket, kind: str, comments_text: str | None = None) -> Comment:
+    """調査報告書 / 実装計画書 / 実装記録 / 完了コメント を生成し、対応タグ付き Comment を保存する。
+
+    kind: "survey" | "plan" | "record" | "completion"
+    方針書(generate_spec)と同じく eval-proxy 経由でサブスクリプション内 AI を使う。
+    ドキュメント系（survey/plan/record）はローカル docs にもファイル保存する。
+    """
+    if kind not in _GENERATION_KINDS:
+        raise ValueError(f"Unknown generation kind: {kind}")
+    build_prompt, endpoint, tag, docs_subdir = _GENERATION_KINDS[kind]
+
+    if comments_text is None:
+        comments_text = _get_comments_text(ticket)
+
+    repos = resolve_repositories(ticket)
+    cwd = repos[0].local_path if repos else None
+    prompt = build_prompt(ticket, comments_text, repos)
+
+    content = _call_proxy(endpoint, prompt, model="opus", cwd=cwd)
+
+    comment = _create_ai_comment(ticket, content, [tag])
+
+    if docs_subdir:
+        _write_doc_file(DOCS_ROOT / docs_subdir, ticket, content, kind)
+
+    return comment

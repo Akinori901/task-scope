@@ -85,6 +85,10 @@ export interface Ticket {
   has_evaluation: boolean;
   has_spec: boolean;
   has_report: boolean;
+  has_survey: boolean;
+  has_plan: boolean;
+  has_completion: boolean;
+  has_qa: boolean;
   needs_re_evaluation: boolean;
   new_comment_count: number;
   spec_readiness: "ready" | "partial" | "not_ready" | null;

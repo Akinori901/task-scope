@@ -135,10 +135,21 @@ export interface QaItem {
   note?: string;
 }
 
+/** AI 生成の種別。spec/qa は専用エンドポイント、それ以外は generate/<kind>/ 共通。 */
+// 採点(evaluate) もキュー経由でタスクバーに出るため種別に含める
+export type GenerateKind =
+  | "evaluate"
+  | "spec"
+  | "qa"
+  | "survey"
+  | "plan"
+  | "record"
+  | "completion";
+
 export interface BackgroundTask {
   task_id: string;
   status: "running" | "completed" | "failed";
-  task_type?: "spec" | "qa";
+  task_type?: GenerateKind;
   ticket_id: number;
   issue_key: string;
   summary?: string;
@@ -153,6 +164,10 @@ export const generateSpec = (id: number) =>
 
 export const generateQa = (id: number) =>
   apiClient.post<{ task_id: string; status: string }>(`/tickets/${id}/generate-qa/`);
+
+/** 調査報告書 / 実装計画書 / 実行記録 / 完了報告 の生成（共通エンドポイント）。 */
+export const generateDocument = (id: number, kind: "survey" | "plan" | "record" | "completion") =>
+  apiClient.post<{ task_id: string; status: string }>(`/tickets/${id}/generate/${kind}/`);
 
 export const fetchBackgroundTasks = () =>
   apiClient.get<BackgroundTask[]>("/tasks/");
