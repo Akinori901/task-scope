@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createJiraSpace, deleteJiraSpace, fetchJiraSpaces, triggerJiraSync, updateJiraSpace } from "../api/client";
-import type { JiraSpaceInput } from "../api/types";
+import { createJiraSpace, deleteJiraSpace, fetchJiraSpaces, triggerJiraSync, updateJiraSpace, toArray } from "../api/client";
+import type { JiraSpaceInput, JiraSpace } from "../api/types";
 
 export const useJiraSpaces = () => {
   return useQuery({
     queryKey: ["jira-spaces"],
-    queryFn: () => fetchJiraSpaces().then((r) => r.data),
+    queryFn: () => fetchJiraSpaces().then((r) => toArray<JiraSpace>(r.data)),
   });
 };
 

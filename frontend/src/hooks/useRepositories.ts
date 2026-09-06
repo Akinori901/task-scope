@@ -4,13 +4,14 @@ import {
   deleteRepository,
   fetchRepositories,
   updateRepository,
+  toArray,
 } from "../api/client";
-import type { CodeRepositoryInput } from "../api/types";
+import type { CodeRepositoryInput, CodeRepository } from "../api/types";
 
 export const useRepositories = (projectId?: number) => {
   return useQuery({
     queryKey: ["repositories", projectId],
-    queryFn: () => fetchRepositories(projectId).then((r) => r.data),
+    queryFn: () => fetchRepositories(projectId).then((r) => toArray<CodeRepository>(r.data)),
   });
 };
 

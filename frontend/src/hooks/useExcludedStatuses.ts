@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createExcludedStatus, deleteExcludedStatus, fetchExcludedStatuses } from "../api/client";
+import { createExcludedStatus, deleteExcludedStatus, fetchExcludedStatuses, toArray } from "../api/client";
+import type { ExcludedStatus } from "../api/types";
 import { parseSpaceId, useViewStore } from "../stores/viewStore";
 
 export const useExcludedStatuses = () => {
@@ -7,7 +8,7 @@ export const useExcludedStatuses = () => {
   const spaceFilter = parseSpaceId(spaceId);
   return useQuery({
     queryKey: ["excluded-statuses", spaceId],
-    queryFn: () => fetchExcludedStatuses(spaceFilter).then((r) => r.data),
+    queryFn: () => fetchExcludedStatuses(spaceFilter).then((r) => toArray<ExcludedStatus>(r.data)),
   });
 };
 

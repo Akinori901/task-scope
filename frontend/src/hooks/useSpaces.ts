@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createSpace, deleteSpace, fetchSpaces, triggerSync, updateSpace } from "../api/client";
-import type { BacklogSpaceInput } from "../api/types";
+import { createSpace, deleteSpace, fetchSpaces, triggerSync, updateSpace, toArray } from "../api/client";
+import type { BacklogSpaceInput, BacklogSpace } from "../api/types";
 
 export const useSpaces = () => {
   return useQuery({
     queryKey: ["spaces"],
-    queryFn: () => fetchSpaces().then((r) => r.data),
+    queryFn: () => fetchSpaces().then((r) => toArray<BacklogSpace>(r.data)),
   });
 };
 
