@@ -1,5 +1,6 @@
 import django_filters
 from django.db.models import Q
+from rest_framework import filters
 
 from apps.core.models import ExcludedStatus, Ticket
 from apps.core.services.sync_service import CLOSED_STATUS_NAMES
@@ -78,3 +79,34 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
         if value is not None:
             return queryset.filter(parent_ticket__isnull=value)
         return queryset
+
+
+class MappedOrderingFilter(filters.OrderingFilter):
+    """ordering の項目名を、実際に並べ替えに使う式へ読み替える OrderingFilter。
+
+    View に `ordering_field_mapping = {"issue_key": ["_key_prefix", "_key_number"]}`
+    を置くと、`?ordering=issue_key` を `_key_prefix, _key_number` の順で
+    並べ替える。降順(`-issue_key`)は展開後の全項目に反映する。
+
+    issue_key のような "PREFIX-123" 形式の文字列は、そのまま ORDER BY すると
+    辞書順になり -1510 が -216 より前に来てしまうため、数値化した注釈へ
+    差し替えるのに使う。
+    """
+
+    def get_ordering(self, request, queryset, view):  # type: ignore[no-untyped-def]
+        ordering = super().get_ordering(request, queryset, view)
+        if not ordering:
+            return ordering
+        mapping = getattr(view, "ordering_field_mapping", None)
+        if not mapping:
+            return ordering
+        expanded: list[str] = []
+        for term in ordering:
+            desc = term.startswith("-")
+            field = term[1:] if desc else term
+            replacement = mapping.get(field)
+            if replacement is None:
+                expanded.append(term)
+                continue
+            expanded.extend(f"-{r}" if desc else r for r in replacement)
+        return expanded
