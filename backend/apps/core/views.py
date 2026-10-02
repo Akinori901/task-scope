@@ -8,7 +8,8 @@ import threading
 import uuid
 
 from django.db import close_old_connections
-from django.db.models import Count, Exists, OuterRef, Q, QuerySet
+from django.db.models import BigIntegerField, CharField, Count, Exists, Func, OuterRef, Q, QuerySet, Value
+from django.db.models.functions import Cast
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, status
@@ -188,13 +189,45 @@ class DashboardStatsView(APIView):
         return Response(serializer.data)
 
 
+def _issue_key_sort_annotations() -> dict[str, object]:
+    """issue_key を「接頭辞 + 課題番号」に分解してソート用の値を作る。
+
+    issue_key は "PROJECT-1510" のような文字列で、そのまま ORDER BY すると
+    辞書順になり 1510 が 216 より前に来てしまう。
+    最後の "-" で前後に割り、番号側を数値にキャストして
+    「接頭辞 → 番号」の順で並べられるようにする。
+    """
+    # SUBSTRING_INDEX(key, '-', -1) = 最後の "-" 以降（課題番号）
+    number_str = Func(
+        "issue_key", Value("-"), Value(-1),
+        function="SUBSTRING_INDEX", output_field=CharField(),
+    )
+    # 桁数の違う番号を数値として比較する。数値化できない形式は 0 になる。
+    number = Cast(number_str, output_field=BigIntegerField())
+    # 複数プロジェクトが混在しても接頭辞ごとにまとまるようにする
+    prefix = Func(
+        "issue_key", Value("-"), Value(1),
+        function="SUBSTRING_INDEX", output_field=CharField(),
+    )
+    return {"_key_prefix": prefix, "_key_number": number}
+
+
 class TicketListView(generics.ListAPIView[Ticket]):
     """チケット一覧 API（フィルタ・検索・ソート対応）"""
 
     serializer_class = TicketSerializer
     filterset_class = TicketFilter
     search_fields = ["summary", "issue_key"]
-    ordering_fields = ["backlog_updated", "due_date", "priority_id", "status_id"]
+    # フロントのソート可能列(TicketTable COLUMNS の sortable)と必ず一致させる。
+    # DRF は許可外の ordering を黙って捨てて既定順に戻すため、抜けるとソートが
+    # 「効かない」形で無反応になる。
+    ordering_fields = [
+        "backlog_updated", "due_date", "priority_id", "status_id",
+        "issue_key", "summary", "status_name", "priority_name",
+    ]
+    # issue_key は文字列なので辞書順になる（-1510 が -216 より前）。
+    # 課題番号を数値化した別名へ読み替えて自然順で並べる。
+    ordering_field_mapping = {"issue_key": ["_key_prefix", "_key_number"]}
     ordering = ["-backlog_updated"]
 
     def get_queryset(self) -> QuerySet[Ticket]:
@@ -227,6 +260,7 @@ class TicketListView(generics.ListAPIView[Ticket]):
                     "comments", filter=Q(comments__content__gt="")
                 ),
             )
+            .annotate(**_issue_key_sort_annotations())
         )
 
 
@@ -236,12 +270,23 @@ class TicketExportView(generics.ListAPIView[Ticket]):
     serializer_class = TicketSerializer
     filterset_class = TicketFilter
     search_fields = ["summary", "issue_key"]
-    ordering_fields = ["backlog_updated", "due_date", "priority_id", "status_id"]
+    # フロントのソート可能列(TicketTable COLUMNS の sortable)と必ず一致させる。
+    # DRF は許可外の ordering を黙って捨てて既定順に戻すため、抜けるとソートが
+    # 「効かない」形で無反応になる。
+    ordering_fields = [
+        "backlog_updated", "due_date", "priority_id", "status_id",
+        "issue_key", "summary", "status_name", "priority_name",
+    ]
+    # issue_key は文字列なので辞書順になる（-1510 が -216 より前）。
+    # 課題番号を数値化した別名へ読み替えて自然順で並べる。
+    ordering_field_mapping = {"issue_key": ["_key_prefix", "_key_number"]}
     ordering = ["-backlog_updated"]
     pagination_class = None  # ページネーション無効
 
     def get_queryset(self) -> QuerySet[Ticket]:
-        return Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee")
+        return Ticket.objects.select_related(
+            "project", "project__space", "project__jira_space", "assignee"
+        ).annotate(**_issue_key_sort_annotations())
 
     CSV_COLUMNS = [
         ("issue_key", "課題キー"),
