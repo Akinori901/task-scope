@@ -8,6 +8,7 @@ AI 評価プロキシサーバー
 Usage:
     python scripts/eval_proxy.py              # デフォルト: port 19001
     python scripts/eval_proxy.py --port 19002 # ポート指定
+    python scripts/eval_proxy.py --host 172.17.0.1  # Linux の Docker Engine 向け
 
 Docker 内の Django バックエンドから host.docker.internal:19001 で呼び出される。
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -370,14 +372,23 @@ class ProxyHandler(BaseHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Evaluation Proxy")
     parser.add_argument("--port", type=int, default=19001, help="Listen port (default: 19001)")
+    # 既定はループバックのみ。0.0.0.0 だと同じ LAN の他端末から生成エンドポイントを
+    # 叩けてしまう。Docker Desktop (Mac/Windows) は host.docker.internal 宛てを
+    # ホストのループバックに転送するので、これで backend コンテナから届く。
+    # Linux の Docker Engine では docker0 のアドレス（例: 172.17.0.1）を指定する。
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("EVAL_PROXY_HOST", "127.0.0.1"),
+        help="Listen address (default: 127.0.0.1, env: EVAL_PROXY_HOST)",
+    )
     args = parser.parse_args()
 
     # ThreadingHTTPServer: 各リクエストを別スレッドで処理する。
     # Claude CLI 呼び出しは数十秒〜数分かかるため、シングルスレッドだと
     # 並行リクエスト（QA生成 + 方針書生成 + 評価など）が直列化し、
     # Docker の host.docker.internal ゲートウェイが 504 で打ち切る。
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), ProxyHandler)
-    print(f"[eval-proxy] Listening on port {args.port}")
+    server = ThreadingHTTPServer((args.host, args.port), ProxyHandler)
+    print(f"[eval-proxy] Listening on {args.host}:{args.port}")
     print(f"[eval-proxy] Claude CLI: {CLAUDE_PATH}")
     print(f"[eval-proxy] Default model: {DEFAULT_MODEL}")
 
