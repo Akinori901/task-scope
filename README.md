@@ -131,6 +131,8 @@ MYSQL_USER=user
 MYSQL_PASSWORD=secret
 
 EVAL_PROXY_URL=http://host.docker.internal:19001
+# 任意（設定方法は「eval-proxy のセキュリティ」を参照）
+EVAL_PROXY_TOKEN=
 ```
 
 ### 3. 初回セットアップ（ワンコマンド）
@@ -184,6 +186,22 @@ make eval-proxy-stop
 
 > eval-proxy は Claude Code CLI をラップした軽量 HTTP サーバーです。
 > Docker コンテナから `host.docker.internal:19001` 経由で呼び出されます。
+
+#### eval-proxy のセキュリティ
+
+eval-proxy は、受け取ったプロンプトでホスト上の `claude` を動かします。
+呼び出せる相手を backend だけに絞るため、次の制限をかけています。
+
+| 守るもの | 対策 | 設定 |
+|---------|------|------|
+| 同じ LAN の他端末 | 既定で `127.0.0.1` だけで待ち受ける | `EVAL_PROXY_HOST` |
+| 閲覧中の悪意あるページ | CORS ヘッダを返さない／`Content-Type: application/json` 以外は 415／Host ヘッダが `localhost`・`127.0.0.1`・`host.docker.internal` 以外は 403（DNS rebinding 対策） | なし（常に有効） |
+| 同じマシン上の他プロセス | 共有トークン（`X-Eval-Proxy-Token`）。backend は `.env` の値を自動で付ける | `EVAL_PROXY_TOKEN` |
+| チケット本文に仕込まれた指示（プロンプトインジェクション） | コード探索で許可するツールは既定で `Read,Glob,Grep,Skill` だけ。`Edit`/`Write` は常に不許可 | `EVAL_PROXY_ALLOW_BASH=1` で Bash を追加 |
+
+- **Linux の Docker Engine** では `127.0.0.1` にコンテナから届かないため、`EVAL_PROXY_HOST` に docker0 のアドレス（例: `172.17.0.1`）を指定します。ループバック以外で待ち受けるときは `EVAL_PROXY_TOKEN` が必須で、未設定だと起動しません。
+- **Bash を許可する**と `git log` / `git blame` で精度が上がりますが、チケット本文経由でホスト上のコマンドが実行されうる状態になります。信頼できるチケットだけを扱う環境で有効にしてください。
+- テスト: `make test-eval-proxy`（標準ライブラリのみ。`claude` は呼びません）
 
 ### 6. リポジトリ固有スキルの活用
 
