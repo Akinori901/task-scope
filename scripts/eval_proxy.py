@@ -266,19 +266,37 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 return False
         return True
 
-    def do_POST(self) -> None:
-        if not self._guard(require_json=True):
-            return
+    def _discard_body(self, length: int) -> None:
+        """未読の本文を読み捨てる。
 
+        本文を残したまま応答して接続を閉じると、送信途中のクライアントには
+        401/415 ではなく connection reset が返ってしまう（原因が分かりにくい）。
+        極端に大きい本文は読み捨てずに閉じる。
+        """
+        remaining = min(length, MAX_BODY_BYTES * 8)
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
+    def do_POST(self) -> None:
         try:
             content_length = int(self.headers.get("Content-Length", 0))
         except ValueError:
+            self.close_connection = True
             self._respond(400, {"error": "Invalid Content-Length"})
             return
         if content_length > MAX_BODY_BYTES:
+            self._discard_body(content_length)
+            self.close_connection = True
             self._respond(413, {"error": "Request body too large"})
             return
         body = self.rfile.read(content_length)
+
+        # 本文を読み切ってから判定する（_discard_body の理由と同じ）。
+        if not self._guard(require_json=True):
+            return
 
         try:
             data = json.loads(body)
