@@ -34,13 +34,16 @@ DEFAULT_MODEL = "sonnet"
 # Skill: 対象リポジトリの .claude/skills/ に置かれた既存スキルをそのまま
 #   使わせるために必要。スキルはリポジトリごとに異なるので、どれを使うかは
 #   プロンプト側で列挙して指示する。
-# Bash: git log / git blame 等で変更履歴を参照させ、生成物の精度を上げるために許可。
 #
 # 注意: Edit/Write は意図的に許可しない。生成はあくまで読み取りと文章生成であり、
 # 対象リポジトリのワーキングツリーを書き換えてよい場面ではない。
-# ただし Bash を許可した時点でホスト上で任意コマンドが実行可能になる点は
-# 承知の上（このプロキシは開発者自身のマシンでのみ動かす前提）。
-CODE_EXPLORATION_TOOLS = "Read,Glob,Grep,Skill,Bash"
+CODE_EXPLORATION_TOOLS = "Read,Glob,Grep,Skill"
+
+# Bash は EVAL_PROXY_ALLOW_BASH=1 のときだけ追加する（git log / git blame で精度が上がる）。
+# 既定で外すのは、プロンプトに Backlog / Jira のチケット本文とコメント（第三者が書いた文章）が
+# そのまま入るため。Bash があると、本文に仕込まれた指示（プロンプトインジェクション）で
+# ホスト上の任意コマンドが実行されうる。
+ALLOW_BASH = False
 MAX_TURNS = "25"
 
 # ブラウザ経由の呼び出しを拒否するための Host ヘッダ許可リスト。
@@ -120,7 +123,8 @@ def call_claude(prompt: str, model: str = DEFAULT_MODEL, max_tokens: int = 4096,
 
     # コード参照時はツール使用を許可し、複数ターンで探索させる
     if cwd:
-        cmd.extend(["--allowedTools", CODE_EXPLORATION_TOOLS, "--max-turns", MAX_TURNS])
+        tools = CODE_EXPLORATION_TOOLS + (",Bash" if ALLOW_BASH else "")
+        cmd.extend(["--allowedTools", tools, "--max-turns", MAX_TURNS])
 
     timeout = ProxyTimeout.for_request(cwd)
 
@@ -404,9 +408,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global PROXY_TOKEN
+    global PROXY_TOKEN, ALLOW_BASH
     settings = load_settings(Path(__file__).resolve().parent.parent / ".env")
     PROXY_TOKEN = settings.get("EVAL_PROXY_TOKEN", "")
+    ALLOW_BASH = settings.get("EVAL_PROXY_ALLOW_BASH", "") == "1"
 
     parser = argparse.ArgumentParser(description="AI Evaluation Proxy")
     parser.add_argument("--port", type=int, default=19001, help="Listen port (default: 19001)")
@@ -435,6 +440,7 @@ def main() -> None:
     server = ThreadingHTTPServer((args.host, args.port), ProxyHandler)
     print(f"[eval-proxy] Listening on {args.host}:{args.port}")
     print(f"[eval-proxy] Token auth: {'on' if PROXY_TOKEN else 'off (loopback only)'}")
+    print(f"[eval-proxy] Bash tool: {'allowed' if ALLOW_BASH else 'disabled'}")
     print(f"[eval-proxy] Claude CLI: {CLAUDE_PATH}")
     print(f"[eval-proxy] Default model: {DEFAULT_MODEL}")
 
