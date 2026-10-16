@@ -78,6 +78,12 @@ logger = logging.getLogger(__name__)
 # eval-proxy のベース URL (Docker → ホスト)
 EVAL_PROXY_URL = getattr(settings, "EVAL_PROXY_URL", "http://host.docker.internal:19001")
 
+
+def proxy_headers() -> dict[str, str]:
+    """eval-proxy への POST に付けるヘッダ（トークン設定時のみ）。"""
+    token = getattr(settings, "EVAL_PROXY_TOKEN", "")
+    return {"X-Eval-Proxy-Token": token} if token else {}
+
 # 方針書ファイル保存先
 POLICIES_DIR = Path("/app/docs/policies")
 
@@ -117,6 +123,7 @@ def _call_proxy(endpoint: str, prompt: str, model: str = "sonnet", cwd: str | No
         resp = client.post(
             f"{EVAL_PROXY_URL}{endpoint}",
             json=payload,
+            headers=proxy_headers(),
         )
         resp.raise_for_status()
         data = resp.json()
@@ -302,7 +309,9 @@ def fetch_skills(local_path: str) -> list[dict]:
     """
     try:
         with httpx.Client(timeout=10.0) as client:
-            resp = client.post(f"{EVAL_PROXY_URL}/list-skills", json={"path": local_path})
+            resp = client.post(
+                f"{EVAL_PROXY_URL}/list-skills", json={"path": local_path}, headers=proxy_headers()
+            )
             resp.raise_for_status()
             return resp.json().get("skills", [])
     except (httpx.HTTPError, ValueError, KeyError):

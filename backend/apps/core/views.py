@@ -42,7 +42,13 @@ from apps.core.serializers import (
 import httpx as _httpx
 from django.conf import settings as _settings
 
-from apps.core.services.evaluation_service import evaluate_ticket, generate_document, generate_qa_items, generate_spec
+from apps.core.services.evaluation_service import (
+    evaluate_ticket,
+    generate_document,
+    generate_qa_items,
+    generate_spec,
+    proxy_headers,
+)
 from apps.core.services.sync_service import NOT_STARTED_STATUS_NAMES, SyncService
 
 logger = logging.getLogger(__name__)
@@ -1261,7 +1267,7 @@ class BrowseDirsView(APIView):
         proxy_url = getattr(_settings, "EVAL_PROXY_URL", "http://host.docker.internal:19001")
         try:
             with _httpx.Client(timeout=10.0) as client:
-                resp = client.post(f"{proxy_url}/browse-dirs", json=request.data)
+                resp = client.post(f"{proxy_url}/browse-dirs", json=request.data, headers=proxy_headers())
                 return Response(resp.json(), status=resp.status_code)
         except Exception:
             logger.exception("Failed to browse directories")

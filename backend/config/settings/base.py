@@ -137,6 +137,8 @@ REST_FRAMEWORK = {
 # --- AI Evaluation Proxy ---
 # ホスト上の eval-proxy (Claude Code CLI) への接続先
 EVAL_PROXY_URL = env("EVAL_PROXY_URL", default="http://host.docker.internal:19001")
+# 設定時は eval-proxy への全 POST に X-Eval-Proxy-Token として付ける（proxy も同じ .env を読む）
+EVAL_PROXY_TOKEN = env("EVAL_PROXY_TOKEN", default="")
 
 # --- CORS ---
 # 開発環境・本番環境で個別に設定

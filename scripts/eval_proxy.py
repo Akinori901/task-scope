@@ -16,6 +16,7 @@ Docker 内の Django バックエンドから host.docker.internal:19001 で呼�
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import os
 import shutil
@@ -50,6 +51,33 @@ ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.interna
 
 # プロンプトはチケット本文とコメントを含むが、1MB を超えることはない。
 MAX_BODY_BYTES = 1024 * 1024
+
+TOKEN_HEADER = "X-Eval-Proxy-Token"
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def load_settings(env_file: Path) -> dict[str, str]:
+    """EVAL_PROXY_* の設定を環境変数と .env から読む（環境変数が優先）。
+
+    backend は docker compose の env_file で同じ .env を読むので、
+    トークンを .env に 1 回書けば proxy と backend の両方に効く。
+    .env の他の値（DB パスワード等）は読まない。
+    """
+    found: dict[str, str] = {}
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        key, sep, value = line.strip().partition("=")
+        if sep and key.startswith("EVAL_PROXY_"):
+            found[key] = value.strip().strip("\"'")
+    found.update({k: v for k, v in os.environ.items() if k.startswith("EVAL_PROXY_")})
+    return found
+
+
+# main() で設定する。空なら認証なし（ループバック待ち受け時のみ許容）。
+PROXY_TOKEN = ""
 
 
 def _host_name(header: str) -> str:
@@ -226,6 +254,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if content_type != "application/json":
                 self._respond(415, {"error": "Content-Type must be application/json"})
                 return False
+            # /health（GET）は make eval-proxy-status から叩くのでトークン不要。
+            if PROXY_TOKEN and not hmac.compare_digest(
+                self.headers.get(TOKEN_HEADER, "").encode(), PROXY_TOKEN.encode()
+            ):
+                self._respond(401, {"error": "Invalid or missing token"})
+                return False
         return True
 
     def do_POST(self) -> None:
@@ -370,6 +404,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    global PROXY_TOKEN
+    settings = load_settings(Path(__file__).resolve().parent.parent / ".env")
+    PROXY_TOKEN = settings.get("EVAL_PROXY_TOKEN", "")
+
     parser = argparse.ArgumentParser(description="AI Evaluation Proxy")
     parser.add_argument("--port", type=int, default=19001, help="Listen port (default: 19001)")
     # 既定はループバックのみ。0.0.0.0 だと同じ LAN の他端末から生成エンドポイントを
@@ -378,10 +416,17 @@ def main() -> None:
     # Linux の Docker Engine では docker0 のアドレス（例: 172.17.0.1）を指定する。
     parser.add_argument(
         "--host",
-        default=os.environ.get("EVAL_PROXY_HOST", "127.0.0.1"),
+        default=settings.get("EVAL_PROXY_HOST", "127.0.0.1"),
         help="Listen address (default: 127.0.0.1, env: EVAL_PROXY_HOST)",
     )
     args = parser.parse_args()
+
+    if args.host not in LOOPBACK_HOSTS and not PROXY_TOKEN:
+        sys.exit(
+            f"[eval-proxy] {args.host} で待ち受けるには EVAL_PROXY_TOKEN が必要です。"
+            " .env に EVAL_PROXY_TOKEN=<ランダムな文字列> を設定してください"
+            "（例: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'）"
+        )
 
     # ThreadingHTTPServer: 各リクエストを別スレッドで処理する。
     # Claude CLI 呼び出しは数十秒〜数分かかるため、シングルスレッドだと
@@ -389,6 +434,7 @@ def main() -> None:
     # Docker の host.docker.internal ゲートウェイが 504 で打ち切る。
     server = ThreadingHTTPServer((args.host, args.port), ProxyHandler)
     print(f"[eval-proxy] Listening on {args.host}:{args.port}")
+    print(f"[eval-proxy] Token auth: {'on' if PROXY_TOKEN else 'off (loopback only)'}")
     print(f"[eval-proxy] Claude CLI: {CLAUDE_PATH}")
     print(f"[eval-proxy] Default model: {DEFAULT_MODEL}")
 
