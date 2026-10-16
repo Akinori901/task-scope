@@ -40,6 +40,26 @@ DEFAULT_MODEL = "sonnet"
 CODE_EXPLORATION_TOOLS = "Read,Glob,Grep,Skill,Bash"
 MAX_TURNS = "25"
 
+# ブラウザ経由の呼び出しを拒否するための Host ヘッダ許可リスト。
+# 閲覧中の悪意あるページが DNS rebinding で自分のドメインを 127.0.0.1 に向けても、
+# Host ヘッダは攻撃者のドメインのままなのでここで弾ける。
+# backend は host.docker.internal、make eval-proxy-status は localhost で来る。
+ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+
+# プロンプトはチケット本文とコメントを含むが、1MB を超えることはない。
+MAX_BODY_BYTES = 1024 * 1024
+
+
+def _host_name(header: str) -> str:
+    """Host ヘッダからポートを除いたホスト名を返す（IPv6 の [::1]:port にも対応）。"""
+    host = header.strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end != -1 else host
+    if host.count(":") == 1:
+        return host.rsplit(":", 1)[0]
+    return host
+
 
 class ProxyTimeout(IntEnum):
     """Claude CLI 呼び出し（subprocess）のタイムアウト秒数。
@@ -189,14 +209,44 @@ def list_skills(root: Path) -> list[dict]:
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
+    def _guard(self, *, require_json: bool) -> bool:
+        """ブラウザ経由・想定外の呼び出し元を弾く。通してよければ True。
+
+        Content-Type を application/json に限るのは、ブラウザが text/plain の
+        simple request ならプリフライトなしで送れてしまうため。application/json は
+        プリフライトが必須で、このプロキシは CORS ヘッダを返さないので通らない。
+        """
+        if _host_name(self.headers.get("Host", "")) not in ALLOWED_HOSTS:
+            self._respond(403, {"error": "Host not allowed"})
+            return False
+        if require_json:
+            content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            if content_type != "application/json":
+                self._respond(415, {"error": "Content-Type must be application/json"})
+                return False
+        return True
+
     def do_POST(self) -> None:
-        content_length = int(self.headers.get("Content-Length", 0))
+        if not self._guard(require_json=True):
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            self._respond(400, {"error": "Invalid Content-Length"})
+            return
+        if content_length > MAX_BODY_BYTES:
+            self._respond(413, {"error": "Request body too large"})
+            return
         body = self.rfile.read(content_length)
 
         try:
             data = json.loads(body)
         except json.JSONDecodeError:
             self._respond(400, {"error": "Invalid JSON"})
+            return
+        if not isinstance(data, dict):
+            self._respond(400, {"error": "JSON object is required"})
             return
 
         # prompt 不要なエンドポイントを先に処理
@@ -239,6 +289,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._respond(404, {"error": "Not found"})
 
     def do_GET(self) -> None:
+        if not self._guard(require_json=False):
+            return
         if self.path == "/health":
             self._respond(200, {"status": "ok"})
         else:
@@ -305,8 +357,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _respond(self, status: int, data: dict) -> None:
         self.send_response(status)
+        # Access-Control-Allow-Origin は付けない。呼び出し元は backend（サーバー間通信）
+        # だけで、ブラウザから直接叩かせる理由がないため。
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
