@@ -2,7 +2,7 @@
        backend-shell frontend-shell mysql \
        migrate makemigrations test-backend lint format format-check type-check quality \
        test-frontend lint-frontend build-frontend \
-       eval-proxy eval-proxy-bg eval-proxy-stop eval-proxy-status sync-backlog \
+       eval-proxy eval-proxy-bg eval-proxy-stop eval-proxy-status test-eval-proxy sync-backlog \
        seed setup
 
 # ===========================
@@ -126,6 +126,9 @@ eval-proxy-stop: ## AI評価プロキシ停止
 
 eval-proxy-status: ## AI評価プロキシの状態確認
 	@curl -s http://localhost:$${EVAL_PROXY_PORT:-19001}/health 2>/dev/null && echo "" || echo "eval-proxy is not running"
+
+test-eval-proxy: ## AI評価プロキシのテスト（ホスト上の python3、標準ライブラリのみ）
+	python3 -m unittest discover -s scripts/tests -v
 
 sync-backlog: ## Backlog同期実行
 	docker compose exec backend uv run python manage.py sync_backlog
