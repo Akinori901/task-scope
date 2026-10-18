@@ -65,8 +65,8 @@ class JiraSyncService:
         """指定 Jira スペースを同期する"""
         try:
             space = await JiraSpace.objects.aget(pk=space_id)
-        except JiraSpace.DoesNotExist:
-            raise ValueError(f"JiraSpace {space_id} not found")
+        except JiraSpace.DoesNotExist as err:
+            raise ValueError(f"JiraSpace {space_id} not found") from err
         await self._sync_space(space, full=full)
 
     async def _sync_space(self, space: JiraSpace, *, full: bool = False) -> None:
@@ -366,9 +366,8 @@ class JiraSyncService:
                 comment.tags = list(set(existing_tags + tags))
                 await comment.asave(update_fields=["tags"])
 
-            if backlog_created:
-                if last_comment_at is None or backlog_created > last_comment_at:
-                    last_comment_at = backlog_created
+            if backlog_created and (last_comment_at is None or backlog_created > last_comment_at):
+                last_comment_at = backlog_created
 
         # WEB側で削除されたコメントをDB上からも削除
         synced_ids = {int(cdata.get("id", 0)) for cdata in comments}

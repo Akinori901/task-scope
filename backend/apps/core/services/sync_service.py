@@ -114,8 +114,8 @@ class SyncService:
         """指定スペースのみ同期する"""
         try:
             space = await BacklogSpace.objects.aget(pk=space_id)
-        except BacklogSpace.DoesNotExist:
-            raise ValueError(f"Space {space_id} not found")
+        except BacklogSpace.DoesNotExist as err:
+            raise ValueError(f"Space {space_id} not found") from err
         await self._sync_space(space, full=full)
 
     async def _sync_space(self, space: BacklogSpace, *, full: bool = False) -> None:
@@ -414,9 +414,8 @@ class SyncService:
             # メンション解析
             await self._parse_mentions(comment, content)
 
-            if backlog_created:
-                if last_comment_at is None or backlog_created > last_comment_at:
-                    last_comment_at = backlog_created
+            if backlog_created and (last_comment_at is None or backlog_created > last_comment_at):
+                last_comment_at = backlog_created
 
         # WEB側で削除されたコメントをDB上からも削除
         synced_ids = {cdata["id"] for cdata in comments_data}

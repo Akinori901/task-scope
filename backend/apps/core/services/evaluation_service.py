@@ -455,7 +455,7 @@ def _build_code_reference_section(repos: list[CodeRepository] | None) -> str:
 ※ 全ファイルを読む必要はありません。チケットに関連する部分のみ調査してください。
 ※ 複数リポジトリがある場合、それぞれの絶対パスで参照してください。
 ※ 方針書の「3. 対応方針」「4. 実装計画」にはコードから読み取った具体的なファイルパス・クラス名・メソッド名を含めてください。
-※ git log / git blame で該当箇所の変更経緯を確認すると精度が上がります。""" + _build_skills_section(repos)
+※ git log / git blame で該当箇所の変更経緯を確認すると精度が上がります。""" + _build_skills_section(repos)  # noqa: E501 — プロンプト本文は改行すると内容が変わる
 
 
 def _get_comments_text(ticket: Ticket) -> str:

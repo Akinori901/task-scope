@@ -1,28 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import csv
 import io
 import logging
 import threading
 import uuid
+from typing import TYPE_CHECKING
 
+import httpx as _httpx
+from django.conf import settings as _settings
 from django.db import close_old_connections
 from django.db.models import BigIntegerField, CharField, Count, Exists, Func, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-# バックグラウンドタスク管理（方針書生成・評価など）
-_bg_tasks: dict[str, dict] = {}
-_bg_tasks_lock = threading.Lock()
-
-import httpx as _httpx
-from django.conf import settings as _settings
 
 from apps.core.filters import TicketFilter
 from apps.core.models import (
@@ -62,7 +58,14 @@ from apps.core.services.evaluation_service import (
 )
 from apps.core.services.sync_service import NOT_STARTED_STATUS_NAMES, SyncService
 
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+
 logger = logging.getLogger(__name__)
+
+# バックグラウンドタスク管理（方針書生成・評価など）
+_bg_tasks: dict[str, dict] = {}
+_bg_tasks_lock = threading.Lock()
 
 
 class DashboardStatsView(APIView):
@@ -902,11 +905,10 @@ class BulkPostCommentsView(APIView):
                 logger.exception("Failed to post comment %d to Backlog", comment.pk)
                 errors.append(f"{ticket.issue_key}: 投稿失敗")
 
+        # クライアントを閉じる失敗は結果に影響しないので無視する
         for client in clients.values():
-            try:
+            with contextlib.suppress(Exception):
                 asyncio.run(client.close())
-            except Exception:
-                pass
 
         return Response({"posted": posted, "errors": errors})
 
