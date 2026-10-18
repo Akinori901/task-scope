@@ -23,6 +23,12 @@ export default tseslint.config(
         "warn",
         { allowConstantExport: true },
       ],
+      // `const { page, ...rest } = obj` のように、残りを取り出すために
+      // 分割代入で「外す」書き方は未使用扱いにしない（意図的な除外のため）。
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { ignoreRestSiblings: true },
+      ],
     },
   }
 );
