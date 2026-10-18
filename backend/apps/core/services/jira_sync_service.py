@@ -25,6 +25,15 @@ def _parse_datetime(value: str | None) -> datetime | None:
     return dt
 
 
+def _parse_required_datetime(value: str | None, field: str) -> datetime:
+    # backlog_created / backlog_updated は NOT NULL。欠けたまま保存すると
+    # IntegrityError になり原因が追えないので、欠けたフィールド名を出して止める
+    dt = _parse_datetime(value)
+    if dt is None:
+        raise ValueError(f"必須の日時 {field} が API 応答にありません")
+    return dt
+
+
 def _parse_date(value: str | None) -> date | None:
     if not value:
         return None
@@ -245,7 +254,7 @@ class JiraSyncService:
         priority = fields.get("priority") or {}
         issue_type = fields.get("issuetype") or {}
 
-        backlog_updated = _parse_datetime(fields.get("updated"))
+        backlog_updated = _parse_required_datetime(fields.get("updated"), "updated")
         due_date = _parse_date(fields.get("duedate"))
         status_name = status.get("name", "")
 
@@ -312,7 +321,7 @@ class JiraSyncService:
                 "custom_fields": _extract_labels(fields),
                 "categories": [],
                 "milestone_names": [],
-                "backlog_created": _parse_datetime(fields.get("created")),
+                "backlog_created": _parse_required_datetime(fields.get("created"), "created"),
                 "backlog_updated": backlog_updated,
                 "is_overdue": is_overdue,
                 "is_stagnant": is_stagnant,
@@ -342,7 +351,7 @@ class JiraSyncService:
 
             body_adf = cdata.get("body")
             content = _adf_to_text(body_adf) if body_adf else ""
-            backlog_created = _parse_datetime(cdata.get("created"))
+            backlog_created = _parse_required_datetime(cdata.get("created"), "comment.created")
             jira_comment_id = int(cdata.get("id", 0))
 
             tags: list[str] = []
