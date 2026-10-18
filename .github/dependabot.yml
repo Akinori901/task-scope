@@ -1,0 +1,25 @@
+# 依存の更新 PR を月 1 回まとめて受け取る。
+# マイナー・パッチは 1 本の PR にまとめ、メジャーだけ個別に出す（PR が溢れないように）。
+version: 2
+updates:
+  # action はコミット SHA で固定しているので、更新は Dependabot に任せる
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directory: /backend
+    schedule:
+      interval: monthly
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
