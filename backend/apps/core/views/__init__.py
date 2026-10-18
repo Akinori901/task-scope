@@ -1,0 +1,103 @@
+"""API ビュー。機能ごとのモジュールに分けている（urls.py とテストはここから import する）。"""
+
+from apps.core.views.comments import (
+    BulkPostCommentsView,
+    CommentCreateView,
+    CommentDeleteView,
+    CommentPostToBacklogView,
+    CommentUpdateTagsView,
+    CommentUpdateView,
+    UnpostedSpecsView,
+)
+from apps.core.views.dashboard import (
+    DashboardStatsView,
+)
+from apps.core.views.generation import (
+    BackgroundTaskDetailView,
+    BackgroundTaskStatusView,
+    TicketEvaluateView,
+    TicketGenerateDocumentView,
+    TicketGenerateQAView,
+    TicketGenerateSpecView,
+)
+from apps.core.views.milestones import (
+    GanttMilestoneListView,
+    MilestoneDetailView,
+    MilestoneListCreateView,
+    MilestoneNameListView,
+)
+from apps.core.views.settings_page import (
+    BacklogSpaceDetailView,
+    BacklogSpaceListCreateView,
+    BacklogUserListView,
+    BacklogUserUpdateView,
+    BrowseDirsView,
+    CategoryNameListView,
+    CodeRepositoryDetailView,
+    CodeRepositoryListCreateView,
+    ExcludedStatusDestroyView,
+    ExcludedStatusListCreateView,
+    JiraSpaceDetailView,
+    JiraSpaceListCreateView,
+    ProjectListView,
+    StatusNameListView,
+)
+from apps.core.views.sync import (
+    JiraSyncTriggerView,
+    SyncTriggerView,
+)
+from apps.core.views.tickets import (
+    PinnedTicketDestroyView,
+    PinnedTicketListCreateView,
+    TicketDetailView,
+    TicketExportView,
+    TicketListView,
+    TicketTagDetailView,
+    TicketTagListCreateView,
+    TicketUpdateCustomTagsView,
+)
+
+__all__ = [
+    "BackgroundTaskDetailView",
+    "BackgroundTaskStatusView",
+    "BacklogSpaceDetailView",
+    "BacklogSpaceListCreateView",
+    "BacklogUserListView",
+    "BacklogUserUpdateView",
+    "BrowseDirsView",
+    "BulkPostCommentsView",
+    "CategoryNameListView",
+    "CodeRepositoryDetailView",
+    "CodeRepositoryListCreateView",
+    "CommentCreateView",
+    "CommentDeleteView",
+    "CommentPostToBacklogView",
+    "CommentUpdateTagsView",
+    "CommentUpdateView",
+    "DashboardStatsView",
+    "ExcludedStatusDestroyView",
+    "ExcludedStatusListCreateView",
+    "GanttMilestoneListView",
+    "JiraSpaceDetailView",
+    "JiraSpaceListCreateView",
+    "JiraSyncTriggerView",
+    "MilestoneDetailView",
+    "MilestoneListCreateView",
+    "MilestoneNameListView",
+    "PinnedTicketDestroyView",
+    "PinnedTicketListCreateView",
+    "ProjectListView",
+    "StatusNameListView",
+    "SyncTriggerView",
+    "TicketDetailView",
+    "TicketEvaluateView",
+    "TicketExportView",
+    "TicketGenerateDocumentView",
+    "TicketGenerateQAView",
+    "TicketGenerateSpecView",
+    "TicketListView",
+    "TicketTagDetailView",
+    "TicketTagListCreateView",
+    "TicketUpdateCustomTagsView",
+    "UnpostedSpecsView",
+]
