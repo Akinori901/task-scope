@@ -49,11 +49,16 @@ plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+# マイグレーションは makemigrations の生成物なので型検査しない
+exclude = ["apps/.*/migrations/"]
 
 [[tool.mypy.overrides]]
 module = [
     "environ",
     "environ.*",
+    # django-filter は型定義を同梱しておらず、stubs も保守されていない
+    "django_filters",
+    "django_filters.*",
 ]
 ignore_missing_imports = true
 

@@ -10,23 +10,28 @@ issue_key の自然順ソートは MySQL の SUBSTRING_INDEX に依存するた�
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from apps.core.views import TicketExportView, TicketListView
+
+if TYPE_CHECKING:
+    from django.test import RequestFactory
 
 # frontend/src/components/TicketTable.tsx の COLUMNS で sortable: true の列
 FRONTEND_SORTABLE = ["issue_key", "summary", "status_name", "priority_name", "due_date"]
 
 
 class TestOrderingFields:
-    def test_一覧はフロントのsortable列を全て許可する(self):
+    def test_一覧はフロントのsortable列を全て許可する(self) -> None:
         allowed = set(TicketListView.ordering_fields)
         missing = [f for f in FRONTEND_SORTABLE if f not in allowed]
         assert missing == [], f"ordering_fields に不足: {missing}"
 
-    def test_CSVも一覧と同じ列を許可する(self):
+    def test_CSVも一覧と同じ列を許可する(self) -> None:
         # 画面と CSV で並びが食い違わないように揃える
         assert set(TicketExportView.ordering_fields) == set(TicketListView.ordering_fields)
 
-    def test_許可列は全てTicketの実カラム(self):
+    def test_許可列は全てTicketの実カラム(self) -> None:
         # シリアライザ専用の派生値を入れると実行時に FieldError になる
         from apps.core.models import Ticket
 
@@ -39,17 +44,18 @@ class TestOrderingFields:
 class TestIssueKeyNaturalOrder:
     """issue_key は辞書順ではなく課題番号の数値順で並べる。"""
 
-    def test_ordering_mappingでissue_keyを数値列に読み替える(self):
+    def test_ordering_mappingでissue_keyを数値列に読み替える(self) -> None:
         mapping = TicketListView.ordering_field_mapping
         assert mapping["issue_key"] == ["_key_prefix", "_key_number"]
 
-    def test_CSVも同じ読み替えを行う(self):
+    def test_CSVも同じ読み替えを行う(self) -> None:
         assert TicketExportView.ordering_field_mapping == TicketListView.ordering_field_mapping
 
-    def test_MappedOrderingFilterが降順を全項目に伝播する(self, rf):
+    def test_MappedOrderingFilterが降順を全項目に伝播する(self, rf: RequestFactory) -> None:
         from rest_framework.request import Request
 
         from apps.core.filters import MappedOrderingFilter
+        from apps.core.models import Ticket
 
         class _View:
             ordering_fields = ["issue_key"]
@@ -57,16 +63,17 @@ class TestIssueKeyNaturalOrder:
             ordering_field_mapping = {"issue_key": ["_key_prefix", "_key_number"]}
 
         f = MappedOrderingFilter()
-        asc = f.get_ordering(Request(rf.get("/?ordering=issue_key")), None, _View())
+        asc = f.get_ordering(Request(rf.get("/?ordering=issue_key")), Ticket.objects.none(), _View())
         assert asc == ["_key_prefix", "_key_number"]
         # 降順は展開後の全項目に "-" が付かないと番号だけ昇順になってしまう
-        desc = f.get_ordering(Request(rf.get("/?ordering=-issue_key")), None, _View())
+        desc = f.get_ordering(Request(rf.get("/?ordering=-issue_key")), Ticket.objects.none(), _View())
         assert desc == ["-_key_prefix", "-_key_number"]
 
-    def test_mappingに無い項目はそのまま通す(self, rf):
+    def test_mappingに無い項目はそのまま通す(self, rf: RequestFactory) -> None:
         from rest_framework.request import Request
 
         from apps.core.filters import MappedOrderingFilter
+        from apps.core.models import Ticket
 
         class _View:
             ordering_fields = ["due_date"]
@@ -74,5 +81,5 @@ class TestIssueKeyNaturalOrder:
             ordering_field_mapping = {"issue_key": ["_key_prefix", "_key_number"]}
 
         f = MappedOrderingFilter()
-        got = f.get_ordering(Request(rf.get("/?ordering=-due_date")), None, _View())
+        got = f.get_ordering(Request(rf.get("/?ordering=-due_date")), Ticket.objects.none(), _View())
         assert got == ["-due_date"]
