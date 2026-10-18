@@ -7,7 +7,7 @@ import io
 import logging
 import threading
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx as _httpx
 from django.conf import settings as _settings
@@ -17,6 +17,7 @@ from django.db.models.functions import Cast
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -59,13 +60,30 @@ from apps.core.services.evaluation_service import (
 from apps.core.services.sync_service import NOT_STARTED_STATUS_NAMES, SyncService
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from rest_framework.request import Request
 
 logger = logging.getLogger(__name__)
 
 # バックグラウンドタスク管理（方針書生成・評価など）
-_bg_tasks: dict[str, dict] = {}
+_bg_tasks: dict[str, dict[str, Any]] = {}
 _bg_tasks_lock = threading.Lock()
+
+
+def _int_param(params: Mapping[str, str], name: str) -> int | None:
+    """ID の絞り込みに使うクエリパラメータを整数で取り出す。未指定なら None。
+
+    文字列のまま ORM に渡すと、数字でない値（?space=abc）で 500 になっていた。
+    不正な値は 400 で返す。
+    """
+    raw = params.get(name)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError as err:
+        raise ValidationError({name: "整数で指定してください"}) from err
 
 
 class DashboardStatsView(APIView):
@@ -73,11 +91,11 @@ class DashboardStatsView(APIView):
 
     def get(self, request: Request) -> Response:
         view_mode = request.query_params.get("view", "all")
-        space_id = request.query_params.get("space")
-        jira_space_id = request.query_params.get("jira_space")
-        project_id = request.query_params.get("project")
+        space_id = _int_param(request.query_params, "space")
+        jira_space_id = _int_param(request.query_params, "jira_space")
+        project_id = _int_param(request.query_params, "project")
         status_name = request.query_params.get("status_name")
-        assignee_id = request.query_params.get("assignee")
+        assignee_id = _int_param(request.query_params, "assignee")
         category = request.query_params.get("category")
         milestone = request.query_params.get("milestone")
         search = request.query_params.get("search")
@@ -327,7 +345,8 @@ class TicketExportView(generics.ListAPIView[Ticket]):
         ("backlog_updated", "最終更新"),
     ]
 
-    def list(self, request: Request, *args: object, **kwargs: object) -> HttpResponse:
+    # CSV のダウンロードなので Response ではなく HttpResponse を返す（DRF はどちらも扱える）
+    def list(self, request: Request, *args: object, **kwargs: object) -> HttpResponse:  # type: ignore[override]
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
 
@@ -355,8 +374,8 @@ class ProjectListView(generics.ListAPIView[Project]):
 
     def get_queryset(self) -> QuerySet[Project]:
         qs = Project.objects.filter(is_active=True)
-        space_id = self.request.query_params.get("space")
-        jira_space_id = self.request.query_params.get("jira_space")
+        space_id = _int_param(self.request.query_params, "space")
+        jira_space_id = _int_param(self.request.query_params, "jira_space")
         if space_id:
             qs = qs.filter(space_id=space_id)
         elif jira_space_id:
@@ -377,8 +396,8 @@ class BacklogUserListView(generics.ListAPIView[BacklogUser]):
 
     def get_queryset(self) -> QuerySet[BacklogUser]:
         qs = BacklogUser.objects.all()
-        space_id = self.request.query_params.get("space")
-        jira_space_id = self.request.query_params.get("jira_space")
+        space_id = _int_param(self.request.query_params, "space")
+        jira_space_id = _int_param(self.request.query_params, "jira_space")
         if space_id:
             qs = qs.filter(space_id=space_id)
         elif jira_space_id:
@@ -790,13 +809,18 @@ class CommentPostToBacklogView(APIView):
             post_content = f"【方針書】\n{post_content}"
 
         project = ticket.project
-        is_jira = project.jira_space_id is not None
+        jira_space = project.jira_space
+        space = project.space
+        is_jira = jira_space is not None
+        if jira_space is None and space is None:
+            return Response(
+                {"error": "このチケットのプロジェクトに連携先（Backlog / Jira）が設定されていません"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            if is_jira:
+            if jira_space is not None:
                 from apps.core.services.jira_client import JiraClient
-
-                jira_space = project.jira_space
 
                 async def _post_jira() -> None:
                     client = JiraClient(
@@ -810,10 +834,8 @@ class CommentPostToBacklogView(APIView):
                         await client.close()
 
                 asyncio.run(_post_jira())
-            else:
+            elif space is not None:
                 from apps.core.services.backlog_client import BacklogClient
-
-                space = project.space
 
                 async def _post_backlog() -> None:
                     client = BacklogClient(base_url=space.base_url, api_key=space.api_key)
@@ -888,6 +910,11 @@ class BulkPostCommentsView(APIView):
         for comment in comments:
             ticket = comment.ticket
             space = ticket.project.space
+            # 一括投稿は Backlog だけが対象。Jira のチケットが混ざっていても、
+            # ここで落とさずに対象外として返し、残りの投稿を続ける。
+            if space is None:
+                errors.append(f"{ticket.issue_key}: Backlog のチケットではないため一括投稿の対象外")
+                continue
             if space.id not in clients:
                 clients[space.id] = BacklogClient(base_url=space.base_url, api_key=space.api_key)
 
@@ -1004,9 +1031,9 @@ class ExcludedStatusListCreateView(generics.ListCreateAPIView[ExcludedStatus]):
 
     def get_queryset(self) -> QuerySet[ExcludedStatus]:
         qs = ExcludedStatus.objects.select_related("project").all()
-        project_id = self.request.query_params.get("project")
-        space_id = self.request.query_params.get("space")
-        jira_space_id = self.request.query_params.get("jira_space")
+        project_id = _int_param(self.request.query_params, "project")
+        space_id = _int_param(self.request.query_params, "space")
+        jira_space_id = _int_param(self.request.query_params, "jira_space")
         if project_id:
             qs = qs.filter(project_id=project_id)
         if space_id:
@@ -1028,9 +1055,9 @@ class StatusNameListView(APIView):
 
     def get(self, request: Request) -> Response:
         qs = Ticket.objects.all()
-        space_id = request.query_params.get("space")
-        jira_space_id = request.query_params.get("jira_space")
-        project_id = request.query_params.get("project")
+        space_id = _int_param(request.query_params, "space")
+        jira_space_id = _int_param(request.query_params, "jira_space")
+        project_id = _int_param(request.query_params, "project")
         if project_id:
             qs = qs.filter(project_id=project_id)
         elif space_id:
@@ -1046,9 +1073,9 @@ class CategoryNameListView(APIView):
 
     def get(self, request: Request) -> Response:
         qs = Ticket.objects.all()
-        space_id = request.query_params.get("space")
-        jira_space_id = request.query_params.get("jira_space")
-        project_id = request.query_params.get("project")
+        space_id = _int_param(request.query_params, "space")
+        jira_space_id = _int_param(request.query_params, "jira_space")
+        project_id = _int_param(request.query_params, "project")
         if project_id:
             qs = qs.filter(project_id=project_id)
         elif space_id:
@@ -1068,9 +1095,9 @@ class MilestoneNameListView(APIView):
 
     def get(self, request: Request) -> Response:
         qs = Ticket.objects.all()
-        space_id = request.query_params.get("space")
-        jira_space_id = request.query_params.get("jira_space")
-        project_id = request.query_params.get("project")
+        space_id = _int_param(request.query_params, "space")
+        jira_space_id = _int_param(request.query_params, "jira_space")
+        project_id = _int_param(request.query_params, "project")
         if project_id:
             qs = qs.filter(project_id=project_id)
         elif space_id:
@@ -1095,9 +1122,9 @@ class GanttMilestoneListView(APIView):
             start_date__isnull=False,
             end_date__isnull=False,
         )
-        space_id = request.query_params.get("space")
-        jira_space_id = request.query_params.get("jira_space")
-        project_id = request.query_params.get("project")
+        space_id = _int_param(request.query_params, "space")
+        jira_space_id = _int_param(request.query_params, "jira_space")
+        project_id = _int_param(request.query_params, "project")
         if project_id:
             ms_qs = ms_qs.filter(project_id=project_id)
         elif space_id:
@@ -1124,7 +1151,7 @@ class GanttMilestoneListView(APIView):
         status_name = request.query_params.get("status_name")
         if status_name:
             tickets_qs = tickets_qs.filter(status_name=status_name)
-        assignee_id = request.query_params.get("assignee")
+        assignee_id = _int_param(request.query_params, "assignee")
         if assignee_id:
             tickets_qs = tickets_qs.filter(assignee_id=assignee_id)
         category = request.query_params.get("category")
@@ -1198,8 +1225,8 @@ class GanttMilestoneListView(APIView):
                     "project_key": ms.project.project_key,
                     "project_name": ms.project.name,
                     "name": ms.name,
-                    "start_date": ms.start_date.isoformat(),
-                    "end_date": ms.end_date.isoformat(),
+                    "start_date": ms.start_date.isoformat() if ms.start_date else None,
+                    "end_date": ms.end_date.isoformat() if ms.end_date else None,
                     "sort_order": ms.sort_order,
                     "stats": {**s, "completion_rate": rate},
                 }
@@ -1268,9 +1295,9 @@ class MilestoneListCreateView(generics.ListCreateAPIView[Milestone]):
 
     def get_queryset(self) -> QuerySet[Milestone]:
         qs = Milestone.objects.select_related("project").all()
-        project_id = self.request.query_params.get("project")
-        space_id = self.request.query_params.get("space")
-        jira_space_id = self.request.query_params.get("jira_space")
+        project_id = _int_param(self.request.query_params, "project")
+        space_id = _int_param(self.request.query_params, "space")
+        jira_space_id = _int_param(self.request.query_params, "jira_space")
         if project_id:
             qs = qs.filter(project_id=project_id)
         elif space_id:
@@ -1295,7 +1322,7 @@ class CodeRepositoryListCreateView(generics.ListCreateAPIView[CodeRepository]):
 
     def get_queryset(self) -> QuerySet[CodeRepository]:
         qs = CodeRepository.objects.select_related("project").all()
-        project_id = self.request.query_params.get("project")
+        project_id = _int_param(self.request.query_params, "project")
         if project_id:
             qs = qs.filter(project_id=project_id)
         return qs
