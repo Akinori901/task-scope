@@ -10,7 +10,7 @@ dependencies = [
     "django-environ>=0.12,<1.0",
     "mysqlclient>=2.2,<3.0",
     "httpx>=0.28,<1.0",
-    "django-filter>=25.0,<26.0",
+    "django-filter>=25.0,<27.0",
 ]
 
 [project.optional-dependencies]
