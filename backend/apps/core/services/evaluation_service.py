@@ -11,6 +11,7 @@ import logging
 import re
 from enum import IntEnum
 from pathlib import Path
+from typing import Any
 
 import httpx
 from django.conf import settings
@@ -131,8 +132,11 @@ def _call_proxy(endpoint: str, prompt: str, model: str = "sonnet", cwd: str | No
             headers=proxy_headers(),
         )
         resp.raise_for_status()
-        data = resp.json()
-        return data["text"]
+        text = resp.json().get("text")
+        # 応答の形が崩れていたら、空文字や "None" を生成物として保存せずに失敗させる
+        if not isinstance(text, str):
+            raise ValueError("eval-proxy の応答に text がありません")
+        return text
 
 
 def _build_evaluation_prompt(ticket: Ticket, comments_text: str) -> str:
@@ -309,7 +313,7 @@ SQL・データ操作の難しさ。DB・テーブル・SQL・クエリへの言
 ### summary: 全体評価サマリ"""
 
 
-def fetch_skills(local_path: str) -> list[dict]:
+def fetch_skills(local_path: str) -> list[dict[str, Any]]:
     """リポジトリで使えるスキル一覧を eval-proxy 経由で取得する。
 
     スキルはリポジトリごとに異なるため、生成種別に固定のスキル名を割り当てず
@@ -320,7 +324,8 @@ def fetch_skills(local_path: str) -> list[dict]:
         with httpx.Client(timeout=10.0) as client:
             resp = client.post(f"{EVAL_PROXY_URL}/list-skills", json={"path": local_path}, headers=proxy_headers())
             resp.raise_for_status()
-            return resp.json().get("skills", [])
+            skills = resp.json().get("skills", [])
+            return skills if isinstance(skills, list) else []
     except (httpx.HTTPError, ValueError, KeyError):
         logger.warning("スキル一覧の取得に失敗: %s", local_path, exc_info=True)
         return []
@@ -612,7 +617,7 @@ def _create_ai_comment(ticket: Ticket, content: str, tags: list[str]) -> Comment
     )
 
 
-def generate_qa_items(ticket: Ticket, comments_text: str | None = None) -> tuple[list[dict], Comment]:
+def generate_qa_items(ticket: Ticket, comments_text: str | None = None) -> tuple[list[dict[str, Any]], Comment]:
     """チケットから QA テスト項目を生成する → qa タグ付き Comment（JSON）として保存
 
     Returns: (qa_items のリスト, 保存した Comment)

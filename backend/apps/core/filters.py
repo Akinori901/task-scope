@@ -1,12 +1,19 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import django_filters
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from rest_framework import filters
 
 from apps.core.models import ExcludedStatus, Ticket
 from apps.core.services.sync_service import CLOSED_STATUS_NAMES
 
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
-class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
+
+class TicketFilter(django_filters.FilterSet):  # type: ignore[misc]  # django_filters は型定義が無く Any になる
     project = django_filters.NumberFilter(field_name="project_id")
     space = django_filters.NumberFilter(field_name="project__space_id")
     jira_space = django_filters.NumberFilter(field_name="project__jira_space_id")
@@ -29,7 +36,7 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
             "is_watched": ["exact"],
         }
 
-    def filter_status_name(self, queryset, name, value):  # type: ignore[no-untyped-def]
+    def filter_status_name(self, queryset: QuerySet[Ticket], name: str, value: str | None) -> QuerySet[Ticket]:
         if value:
             names = [v.strip() for v in value.split(",")]
             if len(names) == 1:
@@ -37,7 +44,7 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
             return queryset.filter(status_name__in=names)
         return queryset
 
-    def filter_view(self, queryset, name, value):  # type: ignore[no-untyped-def]
+    def filter_view(self, queryset: QuerySet[Ticket], name: str, value: str | None) -> QuerySet[Ticket]:
         if value == "my":
             from apps.core.models import BacklogUser, Comment
 
@@ -49,28 +56,28 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
                 queryset = queryset.filter(Q(assignee__in=myself_ids) | Q(id__in=mentioned_ticket_ids)).distinct()
         return queryset
 
-    def filter_exclude_completed(self, queryset, name, value):  # type: ignore[no-untyped-def]
+    def filter_exclude_completed(self, queryset: QuerySet[Ticket], name: str, value: bool | None) -> QuerySet[Ticket]:
         if value:
             excluded = CLOSED_STATUS_NAMES | ExcludedStatus.get_excluded_names()
             queryset = queryset.exclude(status_name__in=excluded)
         return queryset
 
-    def filter_category(self, queryset, name, value):  # type: ignore[no-untyped-def]
+    def filter_category(self, queryset: QuerySet[Ticket], name: str, value: str | None) -> QuerySet[Ticket]:
         if value:
             return queryset.filter(categories__contains=[value])
         return queryset
 
-    def filter_milestone(self, queryset, name, value):  # type: ignore[no-untyped-def]
+    def filter_milestone(self, queryset: QuerySet[Ticket], name: str, value: str | None) -> QuerySet[Ticket]:
         if value:
             return queryset.filter(milestone_names__contains=[value])
         return queryset
 
-    def filter_custom_tag(self, queryset, name, value):  # type: ignore[no-untyped-def]
+    def filter_custom_tag(self, queryset: QuerySet[Ticket], name: str, value: str | None) -> QuerySet[Ticket]:
         if value:
             return queryset.filter(custom_tags__contains=[value])
         return queryset
 
-    def filter_is_root(self, queryset, name, value):  # type: ignore[no-untyped-def]
+    def filter_is_root(self, queryset: QuerySet[Ticket], name: str, value: bool | None) -> QuerySet[Ticket]:
         if value is not None:
             return queryset.filter(parent_ticket__isnull=value)
         return queryset
@@ -88,13 +95,13 @@ class MappedOrderingFilter(filters.OrderingFilter):
     差し替えるのに使う。
     """
 
-    def get_ordering(self, request, queryset, view):  # type: ignore[no-untyped-def]
+    def get_ordering(self, request: Request, queryset: QuerySet[Any], view: Any) -> list[str] | None:
         ordering = super().get_ordering(request, queryset, view)
         if not ordering:
-            return ordering
+            return None if ordering is None else list(ordering)
         mapping = getattr(view, "ordering_field_mapping", None)
         if not mapping:
-            return ordering
+            return list(ordering)
         expanded: list[str] = []
         for term in ordering:
             desc = term.startswith("-")

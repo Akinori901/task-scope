@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from django.db.models import Count
 from rest_framework import serializers
 
@@ -33,7 +35,7 @@ class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):
             "api_key": {"write_only": True},
         }
 
-    def to_representation(self, instance: BacklogSpace) -> dict:
+    def to_representation(self, instance: BacklogSpace) -> dict[str, Any]:
         data = super().to_representation(instance)
         # API キーはマスクして返す
         data["api_key_masked"] = instance.api_key[:4] + "****" if instance.api_key else ""
@@ -58,7 +60,7 @@ class JiraSpaceSerializer(serializers.ModelSerializer[JiraSpace]):
             "api_token": {"write_only": True},
         }
 
-    def to_representation(self, instance: JiraSpace) -> dict:
+    def to_representation(self, instance: JiraSpace) -> dict[str, Any]:
         data = super().to_representation(instance)
         data["api_token_masked"] = instance.api_token[:4] + "****" if instance.api_token else ""
         return data
@@ -267,7 +269,7 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
 
     def get_child_count(self, obj: Ticket) -> int:
         if hasattr(obj, "_child_count"):
-            return obj._child_count  # type: ignore[return-value]
+            return int(obj._child_count)
         return obj.child_tickets.count()
 
     def get_source_type(self, obj: Ticket) -> str:
@@ -277,11 +279,12 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
 
     def get_external_url(self, obj: Ticket) -> str | None:
         project = obj.project
-        if project.jira_space_id:
-            base = project.jira_space.base_url.rstrip("/")
+        jira_space = project.jira_space
+        if jira_space is not None:
+            base = jira_space.base_url.rstrip("/")
             return f"{base}/browse/{obj.issue_key}"
-        if project.space_id:
-            space = project.space
+        space = project.space
+        if space is not None:
             return f"https://{space.space_key}.{space.domain}/view/{obj.issue_key}"
         return None
 
@@ -295,12 +298,12 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
 
     def get_has_spec(self, obj: Ticket) -> bool:
         if hasattr(obj, "_has_spec"):
-            return obj._has_spec  # type: ignore[return-value]
+            return bool(obj._has_spec)
         return Comment.objects.filter(ticket=obj, tags__contains=["spec"]).exists()
 
     def get_has_report(self, obj: Ticket) -> bool:
         if hasattr(obj, "_has_report"):
-            return obj._has_report  # type: ignore[return-value]
+            return bool(obj._has_report)
         return Comment.objects.filter(ticket=obj, tags__contains=["report"]).exists()
 
     def _has_tag(self, obj: Ticket, tag: str) -> bool:
@@ -373,12 +376,13 @@ class TicketDetailSerializer(TicketSerializer):
             "children",
         ]
 
-    def get_comments(self, obj: Ticket) -> list[dict]:
+    def get_comments(self, obj: Ticket) -> list[dict[str, Any]]:
         # 変化ログ（content が空）は除外
         qs = obj.comments.exclude(content="").select_related("created_user").order_by("backlog_created")
-        return CommentSerializer(qs, many=True).data
+        # many=True の data は実行時には一覧（ReturnList）。stubs は ReturnDict としているので明示する
+        return cast("list[dict[str, Any]]", CommentSerializer(qs, many=True).data)
 
-    def get_children(self, obj: Ticket) -> list[dict]:
+    def get_children(self, obj: Ticket) -> list[dict[str, Any]]:
         children = (
             obj.child_tickets.select_related(
                 "project",
@@ -391,9 +395,9 @@ class TicketDetailSerializer(TicketSerializer):
             .annotate(_child_count=Count("child_tickets"))
             .order_by("issue_key")
         )
-        return TicketSerializer(children, many=True).data
+        return cast("list[dict[str, Any]]", TicketSerializer(children, many=True).data)
 
-    def get_matched_repositories(self, obj: Ticket) -> list[dict]:
+    def get_matched_repositories(self, obj: Ticket) -> list[dict[str, Any]]:
         from apps.core.services.evaluation_service import resolve_repositories
 
         repos = resolve_repositories(obj)

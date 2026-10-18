@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend (ruff / pytest)
+    name: Backend (ruff / mypy / pytest)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -34,6 +34,7 @@ jobs:
       - run: uv sync --frozen --extra dev
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen mypy .
       - run: uv run --frozen pytest
 
   frontend:
