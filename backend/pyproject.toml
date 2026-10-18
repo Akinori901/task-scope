@@ -29,6 +29,8 @@ dev = [
 target-version = "py313"
 line-length = 120
 src = ["."]
+# マイグレーションは makemigrations が生成するもので、手で整える対象ではない。
+extend-exclude = ["apps/*/migrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "TCH"]
