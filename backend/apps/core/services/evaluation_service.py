@@ -14,7 +14,6 @@ from pathlib import Path
 
 import httpx
 from django.conf import settings
-
 from django.utils import timezone as tz
 
 from apps.core.models import CodeRepository, Comment, Ticket, TicketEvaluation
@@ -54,9 +53,7 @@ def resolve_repositories(ticket: Ticket) -> list[CodeRepository]:
         for cf in ticket.custom_fields or []:
             if cf.get("name") == repo.match_field:
                 val = cf.get("value")
-                if isinstance(val, list) and repo.match_value in val:
-                    matched.append(repo)
-                elif isinstance(val, str) and val == repo.match_value:
+                if isinstance(val, list) and repo.match_value in val or isinstance(val, str) and val == repo.match_value:
                     matched.append(repo)
     return matched
 

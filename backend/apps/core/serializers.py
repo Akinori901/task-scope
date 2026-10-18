@@ -1,7 +1,19 @@
 from django.db.models import Count
 from rest_framework import serializers
 
-from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, Project, Ticket, TicketEvaluation, TicketTag
+from apps.core.models import (
+    BacklogSpace,
+    BacklogUser,
+    CodeRepository,
+    Comment,
+    ExcludedStatus,
+    JiraSpace,
+    Milestone,
+    Project,
+    Ticket,
+    TicketEvaluation,
+    TicketTag,
+)
 
 
 class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):

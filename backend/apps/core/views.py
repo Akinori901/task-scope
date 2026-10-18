@@ -21,9 +21,23 @@ from rest_framework.views import APIView
 _bg_tasks: dict[str, dict] = {}
 _bg_tasks_lock = threading.Lock()
 
-from apps.core.filters import TicketFilter
-from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, PinnedTicket, Project, Ticket, TicketTag
+import httpx as _httpx
+from django.conf import settings as _settings
 
+from apps.core.filters import TicketFilter
+from apps.core.models import (
+    BacklogSpace,
+    BacklogUser,
+    CodeRepository,
+    Comment,
+    ExcludedStatus,
+    JiraSpace,
+    Milestone,
+    PinnedTicket,
+    Project,
+    Ticket,
+    TicketTag,
+)
 from apps.core.serializers import (
     BacklogSpaceSerializer,
     BacklogUserSerializer,
@@ -39,9 +53,6 @@ from apps.core.serializers import (
     TicketSerializer,
     TicketTagSerializer,
 )
-import httpx as _httpx
-from django.conf import settings as _settings
-
 from apps.core.services.evaluation_service import (
     evaluate_ticket,
     generate_document,

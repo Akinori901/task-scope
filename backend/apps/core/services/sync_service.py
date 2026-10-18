@@ -5,10 +5,9 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from asgiref.sync import sync_to_async
 from django.db import close_old_connections
 from django.utils import timezone
-
-from asgiref.sync import sync_to_async
 
 from apps.core.models import BacklogSpace, BacklogUser, Comment, ExcludedStatus, Project, Ticket
 from apps.core.services.backlog_client import BacklogClient

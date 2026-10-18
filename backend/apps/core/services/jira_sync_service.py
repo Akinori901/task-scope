@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from asgiref.sync import sync_to_async
-
 from django.db import close_old_connections
 from django.utils import timezone
 
