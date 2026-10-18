@@ -20,6 +20,9 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      # settings が必須にしている値。テスト専用のダミーで、秘密ではない。
+      SECRET_KEY: ci-test-only-not-a-secret
     steps:
       # action はコミット SHA で固定する（タグは付け替えられるため）
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
