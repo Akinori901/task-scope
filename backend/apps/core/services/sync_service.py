@@ -32,6 +32,15 @@ def _parse_datetime(value: str | None) -> datetime | None:
     return dt
 
 
+def _parse_required_datetime(value: str | None, field: str) -> datetime:
+    # backlog_created / backlog_updated は NOT NULL。欠けたまま保存すると
+    # IntegrityError になり原因が追えないので、欠けたフィールド名を出して止める
+    dt = _parse_datetime(value)
+    if dt is None:
+        raise ValueError(f"必須の日時 {field} が API 応答にありません")
+    return dt
+
+
 def _parse_date(value: str | None) -> date | None:
     if not value:
         return None
@@ -292,7 +301,7 @@ class SyncService:
         priority = data.get("priority") or {}
         issue_type = data.get("issueType") or {}
 
-        backlog_updated = _parse_datetime(data.get("updated"))
+        backlog_updated = _parse_required_datetime(data.get("updated"), "updated")
         due_date = _parse_date(data.get("dueDate"))
         status_name = status.get("name", "")
 
@@ -346,7 +355,7 @@ class SyncService:
                 "custom_fields": _extract_custom_fields(data),
                 "categories": _extract_list_field(data, "category"),
                 "milestone_names": _extract_list_field(data, "milestone"),
-                "backlog_created": _parse_datetime(data.get("created")),
+                "backlog_created": _parse_required_datetime(data.get("created"), "created"),
                 "backlog_updated": backlog_updated,
                 "is_overdue": is_overdue,
                 "is_stagnant": is_stagnant,
@@ -384,7 +393,7 @@ class SyncService:
         for cdata in comments_data:
             created_user = await self._upsert_user(cdata.get("createdUser"))
             content = cdata.get("content") or ""
-            backlog_created = _parse_datetime(cdata.get("created"))
+            backlog_created = _parse_required_datetime(cdata.get("created"), "comment.created")
 
             has_attachments = bool(cdata.get("attachments"))
 
