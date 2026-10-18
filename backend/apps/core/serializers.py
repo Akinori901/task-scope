@@ -19,7 +19,16 @@ from apps.core.models import (
 class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):
     class Meta:
         model = BacklogSpace
-        fields = ["id", "space_key", "domain", "api_key", "last_synced_at", "sync_interval_minutes", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "space_key",
+            "domain",
+            "api_key",
+            "last_synced_at",
+            "sync_interval_minutes",
+            "created_at",
+            "updated_at",
+        ]
         extra_kwargs = {
             "api_key": {"write_only": True},
         }
@@ -34,8 +43,17 @@ class BacklogSpaceSerializer(serializers.ModelSerializer[BacklogSpace]):
 class JiraSpaceSerializer(serializers.ModelSerializer[JiraSpace]):
     class Meta:
         model = JiraSpace
-        fields = ["id", "site_name", "base_url", "user_email", "api_token", "last_synced_at",
-                  "sync_interval_minutes", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "site_name",
+            "base_url",
+            "user_email",
+            "api_token",
+            "last_synced_at",
+            "sync_interval_minutes",
+            "created_at",
+            "updated_at",
+        ]
         extra_kwargs = {
             "api_token": {"write_only": True},
         }
@@ -61,9 +79,16 @@ class MilestoneSerializer(serializers.ModelSerializer["Milestone"]):
     class Meta:
         model = Milestone
         fields = [
-            "id", "project", "project_key", "project_name",
-            "name", "start_date", "end_date", "sort_order",
-            "created_at", "updated_at",
+            "id",
+            "project",
+            "project_key",
+            "project_name",
+            "name",
+            "start_date",
+            "end_date",
+            "sort_order",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
 
@@ -75,9 +100,18 @@ class CodeRepositorySerializer(serializers.ModelSerializer[CodeRepository]):
     class Meta:
         model = CodeRepository
         fields = [
-            "id", "project", "project_name", "project_key",
-            "name", "local_path", "match_field", "match_value",
-            "description", "is_active", "created_at", "updated_at",
+            "id",
+            "project",
+            "project_name",
+            "project_key",
+            "name",
+            "local_path",
+            "match_field",
+            "match_value",
+            "description",
+            "is_active",
+            "created_at",
+            "updated_at",
         ]
 
 
@@ -167,12 +201,8 @@ class TicketSerializer(serializers.ModelSerializer[Ticket]):
     project_key = serializers.CharField(source="project.project_key", read_only=True)
     project_name = serializers.CharField(source="project.name", read_only=True)
     assignee_name = serializers.SerializerMethodField()
-    parent_ticket_id = serializers.IntegerField(
-        source="parent_ticket.id", read_only=True, default=None
-    )
-    parent_ticket_key = serializers.CharField(
-        source="parent_ticket.issue_key", read_only=True, default=None
-    )
+    parent_ticket_id = serializers.IntegerField(source="parent_ticket.id", read_only=True, default=None)
+    parent_ticket_key = serializers.CharField(source="parent_ticket.issue_key", read_only=True, default=None)
     child_count = serializers.SerializerMethodField()
     source_type = serializers.SerializerMethodField()
     external_url = serializers.SerializerMethodField()
@@ -351,8 +381,12 @@ class TicketDetailSerializer(TicketSerializer):
     def get_children(self, obj: Ticket) -> list[dict]:
         children = (
             obj.child_tickets.select_related(
-                "project", "project__space", "project__jira_space",
-                "assignee", "evaluation", "parent_ticket",
+                "project",
+                "project__space",
+                "project__jira_space",
+                "assignee",
+                "evaluation",
+                "parent_ticket",
             )
             .annotate(_child_count=Count("child_tickets"))
             .order_by("issue_key")

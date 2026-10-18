@@ -55,8 +55,14 @@ urlpatterns = [
     path("tickets/<int:pk>/generate-qa/", TicketGenerateQAView.as_view(), name="ticket-generate-qa"),
     path("tickets/<int:pk>/generate/<str:kind>/", TicketGenerateDocumentView.as_view(), name="ticket-generate-doc"),
     path("tickets/<int:pk>/comments/", CommentCreateView.as_view(), name="comment-create"),
-    path("tickets/<int:pk>/comments/<int:comment_pk>/tags/", CommentUpdateTagsView.as_view(), name="comment-update-tags"),
-    path("tickets/<int:pk>/comments/<int:comment_pk>/post/", CommentPostToBacklogView.as_view(), name="comment-post-to-backlog"),
+    path(
+        "tickets/<int:pk>/comments/<int:comment_pk>/tags/", CommentUpdateTagsView.as_view(), name="comment-update-tags"
+    ),
+    path(
+        "tickets/<int:pk>/comments/<int:comment_pk>/post/",
+        CommentPostToBacklogView.as_view(),
+        name="comment-post-to-backlog",
+    ),
     path("tickets/<int:pk>/comments/<int:comment_pk>/edit/", CommentUpdateView.as_view(), name="comment-update"),
     path("tickets/<int:pk>/comments/<int:comment_pk>/", CommentDeleteView.as_view(), name="comment-delete"),
     path("projects/", ProjectListView.as_view(), name="project-list"),

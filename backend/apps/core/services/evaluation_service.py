@@ -37,6 +37,7 @@ class HttpTimeout(IntEnum):
     def for_request(cls, cwd: str | None) -> float:
         return float(cls.CODE_EXPLORATION if cwd else cls.TEXT)
 
+
 def resolve_repositories(ticket: Ticket) -> list[CodeRepository]:
     """チケットに紐づくコードリポジトリを解決する（複数返却可能）"""
     repos = list(CodeRepository.objects.filter(project=ticket.project, is_active=True))
@@ -53,7 +54,12 @@ def resolve_repositories(ticket: Ticket) -> list[CodeRepository]:
         for cf in ticket.custom_fields or []:
             if cf.get("name") == repo.match_field:
                 val = cf.get("value")
-                if isinstance(val, list) and repo.match_value in val or isinstance(val, str) and val == repo.match_value:
+                if (
+                    isinstance(val, list)
+                    and repo.match_value in val
+                    or isinstance(val, str)
+                    and val == repo.match_value
+                ):
                     matched.append(repo)
     return matched
 
@@ -70,6 +76,7 @@ def _format_custom_fields(ticket: Ticket) -> str:
         lines.append(f"- {cf.get('name', '不明')}: {value}")
     return "\n".join(lines)
 
+
 logger = logging.getLogger(__name__)
 
 # eval-proxy のベース URL (Docker → ホスト)
@@ -80,6 +87,7 @@ def proxy_headers() -> dict[str, str]:
     """eval-proxy への POST に付けるヘッダ（トークン設定時のみ）。"""
     token = getattr(settings, "EVAL_PROXY_TOKEN", "")
     return {"X-Eval-Proxy-Token": token} if token else {}
+
 
 # 方針書ファイル保存先
 POLICIES_DIR = Path("/app/docs/policies")
@@ -144,9 +152,13 @@ def _build_evaluation_prompt(ticket: Ticket, comments_text: str) -> str:
 - 予定時間: {ticket.estimated_hours or "未設定"}
 - 実績時間: {ticket.actual_hours or "未設定"}
 - コメント数: {ticket.comment_count}
-{f"""
+{
+        f'''
 ## カスタム属性
-{_format_custom_fields(ticket)}""" if ticket.custom_fields else ""}
+{_format_custom_fields(ticket)}'''
+        if ticket.custom_fields
+        else ""
+    }
 
 ## 説明
 {ticket.description or "(説明なし)"}
@@ -306,9 +318,7 @@ def fetch_skills(local_path: str) -> list[dict]:
     """
     try:
         with httpx.Client(timeout=10.0) as client:
-            resp = client.post(
-                f"{EVAL_PROXY_URL}/list-skills", json={"path": local_path}, headers=proxy_headers()
-            )
+            resp = client.post(f"{EVAL_PROXY_URL}/list-skills", json={"path": local_path}, headers=proxy_headers())
             resp.raise_for_status()
             return resp.json().get("skills", [])
     except (httpx.HTTPError, ValueError, KeyError):
@@ -371,9 +381,13 @@ def _build_spec_prompt(ticket: Ticket, comments_text: str, repos: list[CodeRepos
 - 担当者: {ticket.assignee.name if ticket.assignee else "未割当"}
 - 開始日: {ticket.start_date or "未設定"}
 - 期限: {ticket.due_date or "未設定"}
-{f"""
+{
+        f'''
 ## カスタム属性
-{_format_custom_fields(ticket)}""" if ticket.custom_fields else ""}
+{_format_custom_fields(ticket)}'''
+        if ticket.custom_fields
+        else ""
+    }
 
 ## 説明
 {ticket.description or "(説明なし)"}
@@ -421,8 +435,7 @@ def _build_code_reference_section(repos: list[CodeRepository] | None) -> str:
     if not repos:
         return ""
     repo_list = "\n".join(
-        f"- **{r.name}**: {r.local_path}" + (f" ({r.description})" if r.description else "")
-        for r in repos
+        f"- **{r.name}**: {r.local_path}" + (f" ({r.description})" if r.description else "") for r in repos
     )
     return f"""
 
@@ -442,9 +455,7 @@ def _build_code_reference_section(repos: list[CodeRepository] | None) -> str:
 ※ 全ファイルを読む必要はありません。チケットに関連する部分のみ調査してください。
 ※ 複数リポジトリがある場合、それぞれの絶対パスで参照してください。
 ※ 方針書の「3. 対応方針」「4. 実装計画」にはコードから読み取った具体的なファイルパス・クラス名・メソッド名を含めてください。
-※ git log / git blame で該当箇所の変更経緯を確認すると精度が上がります。""" + _build_skills_section(
-        repos
-    )
+※ git log / git blame で該当箇所の変更経緯を確認すると精度が上がります。""" + _build_skills_section(repos)
 
 
 def _get_comments_text(ticket: Ticket) -> str:
@@ -527,9 +538,13 @@ def _build_qa_prompt(ticket: Ticket, comments_text: str, repos: list[CodeReposit
 - ステータス: {ticket.status_name}
 - 優先度: {ticket.priority_name}
 - 担当者: {ticket.assignee.name if ticket.assignee else "未割当"}
-{f'''
+{
+        f'''
 ## カスタム属性
-{_format_custom_fields(ticket)}''' if ticket.custom_fields else ""}
+{_format_custom_fields(ticket)}'''
+        if ticket.custom_fields
+        else ""
+    }
 
 ## 説明
 {ticket.description or "(説明なし)"}
@@ -577,8 +592,7 @@ LOCAL_COMMENT_ID_BASE = 1_000_000
 def _next_local_backlog_id(ticket: Ticket) -> int:
     """同一チケット内で未使用のローカル採番 backlog_id を返す。"""
     used = set(
-        Comment.objects.filter(ticket=ticket, backlog_id__lt=LOCAL_COMMENT_ID_BASE)
-        .values_list("backlog_id", flat=True)
+        Comment.objects.filter(ticket=ticket, backlog_id__lt=LOCAL_COMMENT_ID_BASE).values_list("backlog_id", flat=True)
     )
     candidate = 1
     while candidate in used:
@@ -646,9 +660,7 @@ def generate_qa_items(ticket: Ticket, comments_text: str | None = None) -> tuple
     # 正規化済みのデータを保存内容にも反映する
     result["qa_items"] = qa_items
 
-    comment = _create_ai_comment(
-        ticket, json.dumps(result, ensure_ascii=False, indent=2), ["qa"]
-    )
+    comment = _create_ai_comment(ticket, json.dumps(result, ensure_ascii=False, indent=2), ["qa"])
 
     return qa_items, comment
 
@@ -699,9 +711,13 @@ def _build_ticket_header(ticket: Ticket, comments_text: str) -> str:
 - 担当者: {ticket.assignee.name if ticket.assignee else "未割当"}
 - 開始日: {ticket.start_date or "未設定"}
 - 期限: {ticket.due_date or "未設定"}
-{f'''
+{
+        f'''
 ## カスタム属性
-{_format_custom_fields(ticket)}''' if ticket.custom_fields else ""}
+{_format_custom_fields(ticket)}'''
+        if ticket.custom_fields
+        else ""
+    }
 
 ## 説明
 {ticket.description or "(説明なし)"}

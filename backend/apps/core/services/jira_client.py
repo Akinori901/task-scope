@@ -53,10 +53,13 @@ class JiraClient:
         projects: list[dict[str, Any]] = []
         start_at = 0
         while True:
-            data = await self._get("/project/search", params={
-                "startAt": start_at,
-                "maxResults": 50,
-            })
+            data = await self._get(
+                "/project/search",
+                params={
+                    "startAt": start_at,
+                    "maxResults": 50,
+                },
+            )
             values = data.get("values", [])
             projects.extend(values)
             if data.get("isLast", True) or not values:
@@ -85,9 +88,21 @@ class JiraClient:
             "jql": jql,
             "maxResults": max_results,
             "fields": [
-                "summary", "description", "issuetype", "status", "priority",
-                "assignee", "reporter", "created", "updated", "duedate",
-                "comment", "labels", "timeestimate", "timespent", "parent",
+                "summary",
+                "description",
+                "issuetype",
+                "status",
+                "priority",
+                "assignee",
+                "reporter",
+                "created",
+                "updated",
+                "duedate",
+                "comment",
+                "labels",
+                "timeestimate",
+                "timespent",
+                "parent",
             ],
         }
         if next_page_token:
@@ -107,7 +122,8 @@ class JiraClient:
                 }
                 for line in body_text.split("\n")
                 if line
-            ] or [{"type": "paragraph", "content": [{"type": "text", "text": body_text}]}],
+            ]
+            or [{"type": "paragraph", "content": [{"type": "text", "text": body_text}]}],
         }
         result: dict[str, Any] = await self._post(
             f"/issue/{issue_key}/comment",

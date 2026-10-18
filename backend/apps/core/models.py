@@ -4,9 +4,7 @@ from django.db import models
 class ExcludedStatus(models.Model):
     """集計から除外するステータス名（プロジェクト単位）"""
 
-    project = models.ForeignKey(
-        "Project", on_delete=models.CASCADE, related_name="excluded_statuses"
-    )
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, related_name="excluded_statuses")
     status_name = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -14,9 +12,7 @@ class ExcludedStatus(models.Model):
         db_table = "excluded_statuses"
         ordering = ["status_name"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["project", "status_name"], name="uq_project_excluded_status"
-            ),
+            models.UniqueConstraint(fields=["project", "status_name"], name="uq_project_excluded_status"),
         ]
 
     def __str__(self) -> str:
@@ -42,9 +38,7 @@ class BacklogSpace(models.Model):
     )
     api_key = models.CharField(max_length=255)
     last_synced_at = models.DateTimeField(null=True, blank=True)
-    sync_interval_minutes = models.PositiveIntegerField(
-        default=0, help_text="自動同期間隔（分）。0=手動のみ"
-    )
+    sync_interval_minutes = models.PositiveIntegerField(default=0, help_text="自動同期間隔（分）。0=手動のみ")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -67,9 +61,7 @@ class JiraSpace(models.Model):
     user_email = models.EmailField(help_text="Jira ログイン用メールアドレス")
     api_token = models.CharField(max_length=500, help_text="Jira API トークン")
     last_synced_at = models.DateTimeField(null=True, blank=True)
-    sync_interval_minutes = models.PositiveIntegerField(
-        default=0, help_text="自動同期間隔（分）。0=手動のみ"
-    )
+    sync_interval_minutes = models.PositiveIntegerField(default=0, help_text="自動同期間隔（分）。0=手動のみ")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -251,11 +243,15 @@ class CodeRepository(models.Model):
     name = models.CharField(max_length=200)
     local_path = models.CharField(max_length=500, help_text="ローカルディレクトリの絶対パス")
     match_field = models.CharField(
-        max_length=200, blank=True, null=True,
+        max_length=200,
+        blank=True,
+        null=True,
         help_text="マッチ対象のカスタム属性名（例: 対象システム）。空なら無条件マッチ",
     )
     match_value = models.CharField(
-        max_length=200, blank=True, null=True,
+        max_length=200,
+        blank=True,
+        null=True,
         help_text="マッチする値（例: フロントエンド）",
     )
     description = models.CharField(max_length=500, blank=True, default="", help_text="技術スタック等のメモ")
