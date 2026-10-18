@@ -41,17 +41,12 @@ class TicketFilter(django_filters.FilterSet):  # type: ignore[type-arg]
         if value == "my":
             from apps.core.models import BacklogUser, Comment
 
-            myself_ids = list(
-                BacklogUser.objects.filter(is_myself=True).values_list("id", flat=True)
-            )
+            myself_ids = list(BacklogUser.objects.filter(is_myself=True).values_list("id", flat=True))
             if myself_ids:
-                mentioned_ticket_ids = Comment.objects.filter(
-                    mentioned_users__id__in=myself_ids
-                ).values_list("ticket_id", flat=True)
-                queryset = queryset.filter(
-                    Q(assignee__in=myself_ids)
-                    | Q(id__in=mentioned_ticket_ids)
-                ).distinct()
+                mentioned_ticket_ids = Comment.objects.filter(mentioned_users__id__in=myself_ids).values_list(
+                    "ticket_id", flat=True
+                )
+                queryset = queryset.filter(Q(assignee__in=myself_ids) | Q(id__in=mentioned_ticket_ids)).distinct()
         return queryset
 
     def filter_exclude_completed(self, queryset, name, value):  # type: ignore[no-untyped-def]

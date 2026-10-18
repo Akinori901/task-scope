@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from asgiref.sync import sync_to_async
-
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -67,8 +65,8 @@ class JiraSyncService:
         """指定 Jira スペースを同期する"""
         try:
             space = await JiraSpace.objects.aget(pk=space_id)
-        except JiraSpace.DoesNotExist:
-            raise ValueError(f"JiraSpace {space_id} not found")
+        except JiraSpace.DoesNotExist as err:
+            raise ValueError(f"JiraSpace {space_id} not found") from err
         await self._sync_space(space, full=full)
 
     async def _sync_space(self, space: JiraSpace, *, full: bool = False) -> None:
@@ -218,15 +216,13 @@ class JiraSyncService:
         await project.asave()
         logger.info("Synced %d Jira tickets for %s", total, project.project_key)
 
-    async def _resolve_parent_links(
-        self, project: Project, parent_map: list[tuple[int, int]]
-    ) -> None:
+    async def _resolve_parent_links(self, project: Project, parent_map: list[tuple[int, int]]) -> None:
         """親チケットリンクを一括解決（バッチ fetch + 個別 UPDATE）"""
         parent_jira_ids = {pid for _, pid in parent_map}
         parent_lookup: dict[int, int] = {}
-        async for t in Ticket.objects.filter(
-            project=project, backlog_id__in=parent_jira_ids
-        ).values_list("backlog_id", "id"):
+        async for t in Ticket.objects.filter(project=project, backlog_id__in=parent_jira_ids).values_list(
+            "backlog_id", "id"
+        ):
             parent_lookup[t[0]] = t[1]
 
         linked = 0
@@ -370,14 +366,14 @@ class JiraSyncService:
                 comment.tags = list(set(existing_tags + tags))
                 await comment.asave(update_fields=["tags"])
 
-            if backlog_created:
-                if last_comment_at is None or backlog_created > last_comment_at:
-                    last_comment_at = backlog_created
+            if backlog_created and (last_comment_at is None or backlog_created > last_comment_at):
+                last_comment_at = backlog_created
 
         # WEB側で削除されたコメントをDB上からも削除
         synced_ids = {int(cdata.get("id", 0)) for cdata in comments}
         stale_comments = Comment.objects.filter(
-            ticket=ticket, source="synced",
+            ticket=ticket,
+            source="synced",
         ).exclude(backlog_id__in=synced_ids)
         deleted_count = await stale_comments.acount()
         if deleted_count:
@@ -398,9 +394,11 @@ def _extract_labels(fields: dict[str, Any]) -> list[dict[str, Any]]:
     labels = fields.get("labels") or []
     if not labels:
         return []
-    return [{
-        "id": "__labels__",
-        "name": "ラベル",
-        "fieldTypeId": -1,
-        "value": labels,
-    }]
+    return [
+        {
+            "id": "__labels__",
+            "name": "ラベル",
+            "fieldTypeId": -1,
+            "value": labels,
+        }
+    ]

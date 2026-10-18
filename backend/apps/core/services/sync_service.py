@@ -5,10 +5,9 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from asgiref.sync import sync_to_async
 from django.db import close_old_connections
 from django.utils import timezone
-
-from asgiref.sync import sync_to_async
 
 from apps.core.models import BacklogSpace, BacklogUser, Comment, ExcludedStatus, Project, Ticket
 from apps.core.services.backlog_client import BacklogClient
@@ -54,12 +53,14 @@ def _extract_custom_fields(data: dict[str, Any]) -> list[dict[str, Any]]:
         items = data.get(field_key) or []
         if items:
             names = [v.get("name", str(v)) if isinstance(v, dict) else str(v) for v in items]
-            result.append({
-                "id": f"__{field_key}__",
-                "name": field_name,
-                "fieldTypeId": -1,
-                "value": names,
-            })
+            result.append(
+                {
+                    "id": f"__{field_key}__",
+                    "name": field_name,
+                    "fieldTypeId": -1,
+                    "value": names,
+                }
+            )
 
     # カスタム属性
     for cf in data.get("customFields") or []:
@@ -103,8 +104,7 @@ class SyncService:
 
         if not spaces:
             raise ValueError(
-                "同期対象の Backlog スペースが登録されていません。"
-                "設定画面からスペースを追加してください。"
+                "同期対象の Backlog スペースが登録されていません。設定画面からスペースを追加してください。"
             )
 
         for space in spaces:
@@ -114,8 +114,8 @@ class SyncService:
         """指定スペースのみ同期する"""
         try:
             space = await BacklogSpace.objects.aget(pk=space_id)
-        except BacklogSpace.DoesNotExist:
-            raise ValueError(f"Space {space_id} not found")
+        except BacklogSpace.DoesNotExist as err:
+            raise ValueError(f"Space {space_id} not found") from err
         await self._sync_space(space, full=full)
 
     async def _sync_space(self, space: BacklogSpace, *, full: bool = False) -> None:
@@ -267,15 +267,13 @@ class SyncService:
         await project.asave()
         logger.info("Synced %d tickets for %s", total, project.project_key)
 
-    async def _resolve_parent_links(
-        self, project: Project, parent_map: list[tuple[int, int]]
-    ) -> None:
+    async def _resolve_parent_links(self, project: Project, parent_map: list[tuple[int, int]]) -> None:
         """親チケットリンクを一括解決（バッチ fetch + 個別 UPDATE）"""
         parent_backlog_ids = {pid for _, pid in parent_map}
         parent_lookup: dict[int, int] = {}
-        async for t in Ticket.objects.filter(
-            project=project, backlog_id__in=parent_backlog_ids
-        ).values_list("backlog_id", "id"):
+        async for t in Ticket.objects.filter(project=project, backlog_id__in=parent_backlog_ids).values_list(
+            "backlog_id", "id"
+        ):
             parent_lookup[t[0]] = t[1]
 
         linked = 0
@@ -365,7 +363,8 @@ class SyncService:
 
             for ms_name in milestone_names:
                 await Milestone.objects.aget_or_create(
-                    project=project, name=ms_name,
+                    project=project,
+                    name=ms_name,
                 )
 
         # コメント同期
@@ -415,14 +414,14 @@ class SyncService:
             # メンション解析
             await self._parse_mentions(comment, content)
 
-            if backlog_created:
-                if last_comment_at is None or backlog_created > last_comment_at:
-                    last_comment_at = backlog_created
+            if backlog_created and (last_comment_at is None or backlog_created > last_comment_at):
+                last_comment_at = backlog_created
 
         # WEB側で削除されたコメントをDB上からも削除
         synced_ids = {cdata["id"] for cdata in comments_data}
         stale_comments = Comment.objects.filter(
-            ticket=ticket, source="synced",
+            ticket=ticket,
+            source="synced",
         ).exclude(backlog_id__in=synced_ids)
         deleted_count = await stale_comments.acount()
         if deleted_count:
@@ -472,17 +471,13 @@ class SyncService:
             return
 
         # リセット
-        await Ticket.objects.filter(
-            project__space=self.space, is_watched=True
-        ).aupdate(is_watched=False)
+        await Ticket.objects.filter(project__space=self.space, is_watched=True).aupdate(is_watched=False)
 
         # ウォッチ中の issue_id を取得
         watched_backlog_ids: list[int] = []
         offset = 0
         while True:
-            watchings = await self.client.get_user_watchings(
-                self._myself_backlog_id, count=100, offset=offset
-            )
+            watchings = await self.client.get_user_watchings(self._myself_backlog_id, count=100, offset=offset)
             if not watchings:
                 break
             for w in watchings:

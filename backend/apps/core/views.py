@@ -1,29 +1,39 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import csv
 import io
 import logging
 import threading
 import uuid
+from typing import TYPE_CHECKING
 
+import httpx as _httpx
+from django.conf import settings as _settings
 from django.db import close_old_connections
 from django.db.models import BigIntegerField, CharField, Count, Exists, Func, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-# バックグラウンドタスク管理（方針書生成・評価など）
-_bg_tasks: dict[str, dict] = {}
-_bg_tasks_lock = threading.Lock()
-
 from apps.core.filters import TicketFilter
-from apps.core.models import BacklogSpace, BacklogUser, CodeRepository, Comment, ExcludedStatus, JiraSpace, Milestone, PinnedTicket, Project, Ticket, TicketTag
-
+from apps.core.models import (
+    BacklogSpace,
+    BacklogUser,
+    CodeRepository,
+    Comment,
+    ExcludedStatus,
+    JiraSpace,
+    Milestone,
+    PinnedTicket,
+    Project,
+    Ticket,
+    TicketTag,
+)
 from apps.core.serializers import (
     BacklogSpaceSerializer,
     BacklogUserSerializer,
@@ -39,9 +49,6 @@ from apps.core.serializers import (
     TicketSerializer,
     TicketTagSerializer,
 )
-import httpx as _httpx
-from django.conf import settings as _settings
-
 from apps.core.services.evaluation_service import (
     evaluate_ticket,
     generate_document,
@@ -51,7 +58,14 @@ from apps.core.services.evaluation_service import (
 )
 from apps.core.services.sync_service import NOT_STARTED_STATUS_NAMES, SyncService
 
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+
 logger = logging.getLogger(__name__)
+
+# バックグラウンドタスク管理（方針書生成・評価など）
+_bg_tasks: dict[str, dict] = {}
+_bg_tasks_lock = threading.Lock()
 
 
 class DashboardStatsView(APIView):
@@ -87,21 +101,16 @@ class DashboardStatsView(APIView):
         if milestone:
             tickets = tickets.filter(milestone_names__contains=[milestone])
         if search:
-            tickets = tickets.filter(
-                Q(summary__icontains=search) | Q(issue_key__icontains=search)
-            )
+            tickets = tickets.filter(Q(summary__icontains=search) | Q(issue_key__icontains=search))
 
         # 自分ビューのフィルタ
         myself_users = list(BacklogUser.objects.filter(is_myself=True))
         if view_mode == "my" and myself_users:
             myself_ids = [u.id for u in myself_users]
             mentioned_ticket_ids = list(
-                Comment.objects.filter(mentioned_users__id__in=myself_ids)
-                .values_list("ticket_id", flat=True)
+                Comment.objects.filter(mentioned_users__id__in=myself_ids).values_list("ticket_id", flat=True)
             )
-            tickets = tickets.filter(
-                Q(assignee__in=myself_ids) | Q(id__in=mentioned_ticket_ids)
-            ).distinct()
+            tickets = tickets.filter(Q(assignee__in=myself_ids) | Q(id__in=mentioned_ticket_ids)).distinct()
 
         # フィルタ対象のプロジェクトIDを取得して除外ステータスを決定
         project_ids = list(tickets.values_list("project_id", flat=True).distinct())
@@ -146,10 +155,7 @@ class DashboardStatsView(APIView):
             .annotate(count=Count("id"))
             .order_by("-count")
         )
-        status_distribution = [
-            {"status": item["status_name"], "count": item["count"]}
-            for item in status_dist
-        ]
+        status_distribution = [{"status": item["status_name"], "count": item["count"]} for item in status_dist]
 
         # 担当者別負荷
         workload_qs = (
@@ -205,15 +211,21 @@ def _issue_key_sort_annotations() -> dict[str, object]:
     """
     # SUBSTRING_INDEX(key, '-', -1) = 最後の "-" 以降（課題番号）
     number_str = Func(
-        "issue_key", Value("-"), Value(-1),
-        function="SUBSTRING_INDEX", output_field=CharField(),
+        "issue_key",
+        Value("-"),
+        Value(-1),
+        function="SUBSTRING_INDEX",
+        output_field=CharField(),
     )
     # 桁数の違う番号を数値として比較する。数値化できない形式は 0 になる。
     number = Cast(number_str, output_field=BigIntegerField())
     # 複数プロジェクトが混在しても接頭辞ごとにまとまるようにする
     prefix = Func(
-        "issue_key", Value("-"), Value(1),
-        function="SUBSTRING_INDEX", output_field=CharField(),
+        "issue_key",
+        Value("-"),
+        Value(1),
+        function="SUBSTRING_INDEX",
+        output_field=CharField(),
     )
     return {"_key_prefix": prefix, "_key_number": number}
 
@@ -228,8 +240,14 @@ class TicketListView(generics.ListAPIView[Ticket]):
     # DRF は許可外の ordering を黙って捨てて既定順に戻すため、抜けるとソートが
     # 「効かない」形で無反応になる。
     ordering_fields = [
-        "backlog_updated", "due_date", "priority_id", "status_id",
-        "issue_key", "summary", "status_name", "priority_name",
+        "backlog_updated",
+        "due_date",
+        "priority_id",
+        "status_id",
+        "issue_key",
+        "summary",
+        "status_name",
+        "priority_name",
     ]
     # issue_key は文字列なので辞書順になる（-1510 が -216 より前）。
     # 課題番号を数値化した別名へ読み替えて自然順で並べる。
@@ -239,32 +257,22 @@ class TicketListView(generics.ListAPIView[Ticket]):
     def get_queryset(self) -> QuerySet[Ticket]:
         return (
             Ticket.objects.select_related(
-                "project", "project__space", "project__jira_space",
-                "assignee", "evaluation", "parent_ticket",
+                "project",
+                "project__space",
+                "project__jira_space",
+                "assignee",
+                "evaluation",
+                "parent_ticket",
             )
             .annotate(
                 _child_count=Count("child_tickets"),
-                _has_spec=Exists(
-                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["spec"])
-                ),
-                _has_report=Exists(
-                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["report"])
-                ),
-                _has_survey=Exists(
-                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["survey"])
-                ),
-                _has_plan=Exists(
-                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["plan"])
-                ),
-                _has_completion=Exists(
-                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["completion"])
-                ),
-                _has_qa=Exists(
-                    Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["qa"])
-                ),
-                _real_comment_count=Count(
-                    "comments", filter=Q(comments__content__gt="")
-                ),
+                _has_spec=Exists(Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["spec"])),
+                _has_report=Exists(Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["report"])),
+                _has_survey=Exists(Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["survey"])),
+                _has_plan=Exists(Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["plan"])),
+                _has_completion=Exists(Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["completion"])),
+                _has_qa=Exists(Comment.objects.filter(ticket=OuterRef("pk"), tags__contains=["qa"])),
+                _real_comment_count=Count("comments", filter=Q(comments__content__gt="")),
             )
             .annotate(**_issue_key_sort_annotations())
         )
@@ -280,8 +288,14 @@ class TicketExportView(generics.ListAPIView[Ticket]):
     # DRF は許可外の ordering を黙って捨てて既定順に戻すため、抜けるとソートが
     # 「効かない」形で無反応になる。
     ordering_fields = [
-        "backlog_updated", "due_date", "priority_id", "status_id",
-        "issue_key", "summary", "status_name", "priority_name",
+        "backlog_updated",
+        "due_date",
+        "priority_id",
+        "status_id",
+        "issue_key",
+        "summary",
+        "status_name",
+        "priority_name",
     ]
     # issue_key は文字列なので辞書順になる（-1510 が -216 より前）。
     # 課題番号を数値化した別名へ読み替えて自然順で並べる。
@@ -290,9 +304,9 @@ class TicketExportView(generics.ListAPIView[Ticket]):
     pagination_class = None  # ページネーション無効
 
     def get_queryset(self) -> QuerySet[Ticket]:
-        return Ticket.objects.select_related(
-            "project", "project__space", "project__jira_space", "assignee"
-        ).annotate(**_issue_key_sort_annotations())
+        return Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").annotate(
+            **_issue_key_sort_annotations()
+        )
 
     CSV_COLUMNS = [
         ("issue_key", "課題キー"),
@@ -385,13 +399,14 @@ class TicketDetailView(generics.RetrieveAPIView[Ticket]):
     serializer_class = TicketDetailSerializer
 
     def get_queryset(self) -> QuerySet[Ticket]:
-        return (
-            Ticket.objects.select_related(
-                "project", "project__space", "project__jira_space",
-                "assignee", "evaluation", "parent_ticket",
-            )
-            .annotate(_child_count=Count("child_tickets"))
-        )
+        return Ticket.objects.select_related(
+            "project",
+            "project__space",
+            "project__jira_space",
+            "assignee",
+            "evaluation",
+            "parent_ticket",
+        ).annotate(_child_count=Count("child_tickets"))
 
 
 class TicketEvaluateView(APIView):
@@ -399,7 +414,9 @@ class TicketEvaluateView(APIView):
 
     def post(self, request: Request, pk: int) -> Response:
         try:
-            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=pk)
+            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(
+                pk=pk
+            )
         except Ticket.DoesNotExist:
             return Response(
                 {"error": "Ticket not found"},
@@ -421,23 +438,30 @@ class TicketEvaluateView(APIView):
 def _run_spec_generation(task_id: str, ticket_id: int) -> None:
     """バックグラウンドで方針書生成を実行"""
     import django
+
     django.setup()
     try:
-        ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=ticket_id)
+        ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(
+            pk=ticket_id
+        )
         comment = generate_spec(ticket)
         with _bg_tasks_lock:
-            _bg_tasks[task_id].update({
-                "status": "completed",
-                "comment_id": comment.pk,
-                "issue_key": ticket.issue_key,
-            })
+            _bg_tasks[task_id].update(
+                {
+                    "status": "completed",
+                    "comment_id": comment.pk,
+                    "issue_key": ticket.issue_key,
+                }
+            )
     except Exception as e:
         logger.exception("Background spec generation failed for ticket %d", ticket_id)
         with _bg_tasks_lock:
-            _bg_tasks[task_id].update({
-                "status": "failed",
-                "error": str(e),
-            })
+            _bg_tasks[task_id].update(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
 
 
 class TicketGenerateSpecView(APIView):
@@ -445,7 +469,9 @@ class TicketGenerateSpecView(APIView):
 
     def post(self, request: Request, pk: int) -> Response:
         try:
-            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=pk)
+            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(
+                pk=pk
+            )
         except Ticket.DoesNotExist:
             return Response(
                 {"error": "Ticket not found"},
@@ -479,24 +505,31 @@ class TicketGenerateSpecView(APIView):
 def _run_qa_generation(task_id: str, ticket_id: int) -> None:
     """バックグラウンドで QA テスト項目生成を実行"""
     import django
+
     django.setup()
     try:
-        ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=ticket_id)
+        ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(
+            pk=ticket_id
+        )
         qa_items, comment = generate_qa_items(ticket)
         with _bg_tasks_lock:
-            _bg_tasks[task_id].update({
-                "status": "completed",
-                "comment_id": comment.pk,
-                "issue_key": ticket.issue_key,
-                "qa_items": qa_items,
-            })
+            _bg_tasks[task_id].update(
+                {
+                    "status": "completed",
+                    "comment_id": comment.pk,
+                    "issue_key": ticket.issue_key,
+                    "qa_items": qa_items,
+                }
+            )
     except Exception as e:
         logger.exception("Background QA generation failed for ticket %d", ticket_id)
         with _bg_tasks_lock:
-            _bg_tasks[task_id].update({
-                "status": "failed",
-                "error": str(e),
-            })
+            _bg_tasks[task_id].update(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
 
 
 class TicketGenerateQAView(APIView):
@@ -504,7 +537,9 @@ class TicketGenerateQAView(APIView):
 
     def post(self, request: Request, pk: int) -> Response:
         try:
-            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=pk)
+            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(
+                pk=pk
+            )
         except Ticket.DoesNotExist:
             return Response(
                 {"error": "Ticket not found"},
@@ -543,23 +578,30 @@ _DOCUMENT_KINDS = {"survey", "plan", "record", "completion"}
 def _run_document_generation(task_id: str, ticket_id: int, kind: str) -> None:
     """バックグラウンドでドキュメント生成（survey/plan/record/completion）を実行"""
     import django
+
     django.setup()
     try:
-        ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=ticket_id)
+        ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(
+            pk=ticket_id
+        )
         comment = generate_document(ticket, kind)
         with _bg_tasks_lock:
-            _bg_tasks[task_id].update({
-                "status": "completed",
-                "comment_id": comment.pk,
-                "issue_key": ticket.issue_key,
-            })
+            _bg_tasks[task_id].update(
+                {
+                    "status": "completed",
+                    "comment_id": comment.pk,
+                    "issue_key": ticket.issue_key,
+                }
+            )
     except Exception as e:
         logger.exception("Background %s generation failed for ticket %d", kind, ticket_id)
         with _bg_tasks_lock:
-            _bg_tasks[task_id].update({
-                "status": "failed",
-                "error": str(e),
-            })
+            _bg_tasks[task_id].update(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
 
 
 class TicketGenerateDocumentView(APIView):
@@ -572,7 +614,9 @@ class TicketGenerateDocumentView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(pk=pk)
+            ticket = Ticket.objects.select_related("project", "project__space", "project__jira_space", "assignee").get(
+                pk=pk
+            )
         except Ticket.DoesNotExist:
             return Response(
                 {"error": "Ticket not found"},
@@ -609,10 +653,7 @@ class BackgroundTaskStatusView(APIView):
     def get(self, request: Request) -> Response:
         """全タスクの一覧（running のみ or 全部）"""
         with _bg_tasks_lock:
-            tasks = [
-                {"task_id": tid, **info}
-                for tid, info in _bg_tasks.items()
-            ]
+            tasks = [{"task_id": tid, **info} for tid, info in _bg_tasks.items()]
         return Response(tasks)
 
 
@@ -650,6 +691,7 @@ class CommentCreateView(APIView):
 
         # 手動コメントにはユニークな backlog_id を割り当て（ユニーク制約回避）
         import time
+
         manual_id = int(time.time() * 1000000)  # マイクロ秒タイムスタンプ
 
         comment = Comment.objects.create(
@@ -732,9 +774,9 @@ class CommentPostToBacklogView(APIView):
 
     def post(self, request: Request, pk: int, comment_pk: int) -> Response:
         try:
-            comment = Comment.objects.select_related(
-                "ticket__project__space", "ticket__project__jira_space"
-            ).get(pk=comment_pk, ticket_id=pk)
+            comment = Comment.objects.select_related("ticket__project__space", "ticket__project__jira_space").get(
+                pk=comment_pk, ticket_id=pk
+            )
         except Comment.DoesNotExist:
             return Response({"error": "Comment not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -800,10 +842,15 @@ class UnpostedSpecsView(APIView):
     """未投稿の方針書コメント一覧"""
 
     def get(self, request: Request) -> Response:
-        comments = Comment.objects.select_related("ticket__project").filter(
-            tags__contains=["spec"],
-            posted_at__isnull=True,
-        ).exclude(source="synced").order_by("-created_at")
+        comments = (
+            Comment.objects.select_related("ticket__project")
+            .filter(
+                tags__contains=["spec"],
+                posted_at__isnull=True,
+            )
+            .exclude(source="synced")
+            .order_by("-created_at")
+        )
         data = [
             {
                 "id": c.pk,
@@ -826,8 +873,7 @@ class BulkPostCommentsView(APIView):
             return Response({"error": "comment_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         comments = list(
-            Comment.objects.select_related("ticket__project__space")
-            .filter(pk__in=comment_ids, posted_at__isnull=True)
+            Comment.objects.select_related("ticket__project__space").filter(pk__in=comment_ids, posted_at__isnull=True)
         )
         if not comments:
             return Response({"posted": 0, "errors": []})
@@ -859,11 +905,10 @@ class BulkPostCommentsView(APIView):
                 logger.exception("Failed to post comment %d to Backlog", comment.pk)
                 errors.append(f"{ticket.issue_key}: 投稿失敗")
 
+        # クライアントを閉じる失敗は結果に影響しないので無視する
         for client in clients.values():
-            try:
+            with contextlib.suppress(Exception):
                 asyncio.run(client.close())
-            except Exception:
-                pass
 
         return Response({"posted": posted, "errors": errors})
 
@@ -872,18 +917,18 @@ class PinnedTicketListCreateView(APIView):
     """ピン留めチケットの一覧・追加"""
 
     def get(self, request: Request) -> Response:
-        pins = PinnedTicket.objects.select_related(
-            "ticket__project", "ticket__assignee"
-        ).all()
+        pins = PinnedTicket.objects.select_related("ticket__project", "ticket__assignee").all()
         data = []
         for pin in pins:
             t = pin.ticket
-            data.append({
-                "id": pin.pk,
-                "ticket": TicketSerializer(t).data,
-                "note": pin.note,
-                "pinned_at": pin.pinned_at,
-            })
+            data.append(
+                {
+                    "id": pin.pk,
+                    "ticket": TicketSerializer(t).data,
+                    "note": pin.note,
+                    "pinned_at": pin.pinned_at,
+                }
+            )
         return Response(data)
 
     def post(self, request: Request) -> Response:
@@ -898,12 +943,15 @@ class PinnedTicketListCreateView(APIView):
         pin, created = PinnedTicket.objects.get_or_create(ticket=ticket, defaults={"note": note})
         if not created:
             return Response({"error": "既にピン留め済みです"}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({
-            "id": pin.pk,
-            "ticket": TicketSerializer(ticket).data,
-            "note": pin.note,
-            "pinned_at": pin.pinned_at,
-        }, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "id": pin.pk,
+                "ticket": TicketSerializer(ticket).data,
+                "note": pin.note,
+                "pinned_at": pin.pinned_at,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class PinnedTicketDestroyView(APIView):
@@ -989,11 +1037,7 @@ class StatusNameListView(APIView):
             qs = qs.filter(project__space_id=space_id)
         elif jira_space_id:
             qs = qs.filter(project__jira_space_id=jira_space_id)
-        names = list(
-            qs.values_list("status_name", flat=True)
-            .distinct()
-            .order_by("status_name")
-        )
+        names = list(qs.values_list("status_name", flat=True).distinct().order_by("status_name"))
         return Response(names)
 
 
@@ -1048,7 +1092,8 @@ class GanttMilestoneListView(APIView):
 
         # --- マイルストーン取得（日付ありのみ）---
         ms_qs = Milestone.objects.select_related("project").filter(
-            start_date__isnull=False, end_date__isnull=False,
+            start_date__isnull=False,
+            end_date__isnull=False,
         )
         space_id = request.query_params.get("space")
         jira_space_id = request.query_params.get("jira_space")
@@ -1087,21 +1132,15 @@ class GanttMilestoneListView(APIView):
             tickets_qs = tickets_qs.filter(categories__contains=[category])
         search = request.query_params.get("search")
         if search:
-            tickets_qs = tickets_qs.filter(
-                Q(summary__icontains=search) | Q(issue_key__icontains=search)
-            )
+            tickets_qs = tickets_qs.filter(Q(summary__icontains=search) | Q(issue_key__icontains=search))
         view_mode = request.query_params.get("view")
         if view_mode == "my":
-            myself_ids = list(
-                BacklogUser.objects.filter(is_myself=True).values_list("id", flat=True)
-            )
+            myself_ids = list(BacklogUser.objects.filter(is_myself=True).values_list("id", flat=True))
             if myself_ids:
-                mentioned_ticket_ids = Comment.objects.filter(
-                    mentioned_users__id__in=myself_ids
-                ).values_list("ticket_id", flat=True)
-                tickets_qs = tickets_qs.filter(
-                    Q(assignee__in=myself_ids) | Q(id__in=mentioned_ticket_ids)
-                ).distinct()
+                mentioned_ticket_ids = Comment.objects.filter(mentioned_users__id__in=myself_ids).values_list(
+                    "ticket_id", flat=True
+                )
+                tickets_qs = tickets_qs.filter(Q(assignee__in=myself_ids) | Q(id__in=mentioned_ticket_ids)).distinct()
 
         exclude_completed = request.query_params.get("exclude_completed")
         project_ids = list(ms_qs.values_list("project_id", flat=True).distinct())
@@ -1118,12 +1157,17 @@ class GanttMilestoneListView(APIView):
         # --- マイルストーン別に集計 ---
         stats_by_name: dict[str, dict[str, int]] = {}
         for name in ms_names:
-            stats_by_name[name] = {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0, "overdue": 0}
+            stats_by_name[name] = {
+                "total": 0,
+                "completed": 0,
+                "in_progress": 0,
+                "not_started": 0,
+                "stagnant": 0,
+                "overdue": 0,
+            }
 
         for ticket in (
-            tickets_qs.filter(ms_q)
-            .only("id", "status_name", "is_stagnant", "is_overdue", "milestone_names")
-            .iterator()
+            tickets_qs.filter(ms_q).only("id", "status_name", "is_stagnant", "is_overdue", "milestone_names").iterator()
         ):
             for name in ticket.milestone_names or []:
                 if name not in stats_by_name:
@@ -1144,18 +1188,22 @@ class GanttMilestoneListView(APIView):
         # --- レスポンス構築 ---
         result = []
         for ms in milestones:
-            s = stats_by_name.get(ms.name, {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0, "overdue": 0})
+            s = stats_by_name.get(
+                ms.name, {"total": 0, "completed": 0, "in_progress": 0, "not_started": 0, "stagnant": 0, "overdue": 0}
+            )
             rate = round(s["completed"] / s["total"] * 100, 1) if s["total"] > 0 else 0.0
-            result.append({
-                "id": ms.id,
-                "project_key": ms.project.project_key,
-                "project_name": ms.project.name,
-                "name": ms.name,
-                "start_date": ms.start_date.isoformat(),
-                "end_date": ms.end_date.isoformat(),
-                "sort_order": ms.sort_order,
-                "stats": {**s, "completion_rate": rate},
-            })
+            result.append(
+                {
+                    "id": ms.id,
+                    "project_key": ms.project.project_key,
+                    "project_name": ms.project.name,
+                    "name": ms.name,
+                    "start_date": ms.start_date.isoformat(),
+                    "end_date": ms.end_date.isoformat(),
+                    "sort_order": ms.sort_order,
+                    "stats": {**s, "completion_rate": rate},
+                }
+            )
 
         return Response(result)
 

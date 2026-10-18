@@ -42,5 +42,3 @@ class CommentAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 class TicketEvaluationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = ("ticket", "info_completeness_score", "spec_readiness", "schedule_feasibility", "evaluated_at")
     list_filter = ("spec_readiness", "schedule_feasibility")
-
-
