@@ -230,15 +230,15 @@ export default function TicketDetailPage() {
         const items = task.qa_items;
         const issueKey = task.issue_key;
         const summary = task.summary ?? "";
-        // 自動DLを試みる。ブロックされても手動DLできるよう項目を保持する。
-        setPendingQaDownload({ issueKey, summary, items });
+        // 自動DLを試みる。ブロックされても手動DLできるよう、成否にかかわらず項目を保持する。
         exportQaExcel(issueKey, summary, items)
           .then(() =>
             setSnackMessage(
               `QA項目（${items.length}件）を生成しました。Excelが開始されない場合は下の「ダウンロード」を押してください`,
             ),
           )
-          .catch(() => setSnackMessage("QA項目のExcel生成に失敗しました"));
+          .catch(() => setSnackMessage("QA項目のExcel生成に失敗しました"))
+          .finally(() => setPendingQaDownload({ issueKey, summary, items }));
       }
     }
   }, [bgTasks, ticketId]);

@@ -33,7 +33,12 @@ function DateInput({
 }) {
   const toDisplay = (v: string | null) => (v ? v.replace(/-/g, "/") : "");
   const [text, setText] = React.useState(toDisplay(value));
-  React.useEffect(() => setText(toDisplay(value)), [value]);
+  // 親の value が変わったら同期（描画中に前回値と比べて直す）
+  const [prevValue, setPrevValue] = React.useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setText(toDisplay(value));
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.replace(/\D/g, "").slice(0, 8);
