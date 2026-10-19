@@ -98,7 +98,7 @@ const FEASIBILITY_LABELS = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const TAG_DEFS: { value: string; label: string; color: "info" | "success" | "warning" | "error" | "secondary"; icon: any }[] = [
+const TAG_DEFS: { value: string; label: string; color: "info" | "success" | "warning" | "error" | "secondary"; icon: React.ReactElement }[] = [
   // 前半は作業順（ボタンの ACTION_ORDER と揃える）。
   // 後半は AI 生成に紐づかない手動タグ。
   { value: "survey", label: "調査報告書", color: "info", icon: <SearchIcon fontSize="inherit" /> },
@@ -818,9 +818,12 @@ export default function TicketDetailPage() {
             <Typography variant="subtitle1" fontWeight={600}>
               コメント ({ticket.comments?.length ?? 0})
             </Typography>
+            {/* 見出し全体が button なので、入れ子の button にならないよう span で描画する */}
             <IconButton
+              component="span"
               size="small"
-              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+              aria-label="コメントタグについて"
+              onClick={(e: React.MouseEvent<HTMLElement>) => {
                 e.stopPropagation();
                 setCommentSectionHelpEl(e.currentTarget);
               }}
@@ -828,42 +831,43 @@ export default function TicketDetailPage() {
             >
               <HelpOutlineIcon sx={{ fontSize: 18 }} />
             </IconButton>
-            <Popover
-              open={!!commentSectionHelpEl}
-              anchorEl={commentSectionHelpEl}
-              onClose={() => setCommentSectionHelpEl(null)}
-              anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-              slotProps={{ paper: { sx: { p: 2, maxWidth: 380 } } }}
-            >
-              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                コメントタグについて
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                各コメントにタグを付けることで、種別ごとにフィルタ・分類できます。
-              </Typography>
-              {TAG_DEFS.map((t) => (
-                <Box key={t.value} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
-                  <Chip label={t.label} size="small" color={t.color} icon={<>{t.icon}</>} />
-                  <Typography variant="body2" color="text.secondary">
-                    {t.value === "spec" && "— 実装方針書。AI生成または手動作成"}
-                    {t.value === "pr" && "— PR・実装リンクの記録"}
-                    {t.value === "survey" && "— 調査報告書。原因調査の結果と対処案。AI生成または手動作成"}
-                    {t.value === "plan" && "— 実装計画書。変更対象と手順。AI生成または手動作成"}
-                    {t.value === "record" && "— 実行記録。実施内容の記録。AI生成または手動作成"}
-                    {t.value === "qa" && "— QA項目。テスト項目一覧。AI生成（Excelダウンロード可）"}
-                    {t.value === "completion" && "— 完了報告。依頼者への完了報告ドラフト。AI生成または手動作成"}
-                    {t.value === "report" && "— 完了報告書・作業報告"}
-                    {t.value === "decision" && "— 仕様決定・合意事項の記録"}
-                    {t.value === "blocker" && "— 障害・ブロッカー報告"}
-                  </Typography>
-                </Box>
-              ))}
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                ※ タグ付きコメントはAI採点の対象外です（スコアに影響しません）
-              </Typography>
-            </Popover>
           </Box>
         </AccordionSummary>
+        {/* 見出しの外に置く（ポップアップ内のクリックが見出しの開閉に伝わらないように） */}
+        <Popover
+          open={!!commentSectionHelpEl}
+          anchorEl={commentSectionHelpEl}
+          onClose={() => setCommentSectionHelpEl(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+          slotProps={{ paper: { sx: { p: 2, maxWidth: 380 } } }}
+        >
+          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+            コメントタグについて
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            各コメントにタグを付けることで、種別ごとにフィルタ・分類できます。
+          </Typography>
+          {TAG_DEFS.map((t) => (
+            <Box key={t.value} sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+              <Chip label={t.label} size="small" color={t.color} icon={t.icon} />
+              <Typography variant="body2" color="text.secondary">
+                {t.value === "spec" && "— 実装方針書。AI生成または手動作成"}
+                {t.value === "pr" && "— PR・実装リンクの記録"}
+                {t.value === "survey" && "— 調査報告書。原因調査の結果と対処案。AI生成または手動作成"}
+                {t.value === "plan" && "— 実装計画書。変更対象と手順。AI生成または手動作成"}
+                {t.value === "record" && "— 実行記録。実施内容の記録。AI生成または手動作成"}
+                {t.value === "qa" && "— QA項目。テスト項目一覧。AI生成（Excelダウンロード可）"}
+                {t.value === "completion" && "— 完了報告。依頼者への完了報告ドラフト。AI生成または手動作成"}
+                {t.value === "report" && "— 完了報告書・作業報告"}
+                {t.value === "decision" && "— 仕様決定・合意事項の記録"}
+                {t.value === "blocker" && "— 障害・ブロッカー報告"}
+              </Typography>
+            </Box>
+          ))}
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+            ※ タグ付きコメントはAI採点の対象外です（スコアに影響しません）
+          </Typography>
+        </Popover>
         <AccordionDetails>
           {/* タグフィルタ */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2, flexWrap: "wrap" }}>
@@ -948,7 +952,7 @@ export default function TicketDetailPage() {
                           label={def.label}
                           size="small"
                           color={def.color}
-                          icon={<>{def.icon}</>}
+                          icon={def.icon}
                         />
                       ) : null;
                     })}
