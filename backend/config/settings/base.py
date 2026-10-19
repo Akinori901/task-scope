@@ -152,6 +152,8 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "verbose": {
+            # Backlog の apiKey 等を出力直前に伏せる（config/log_redaction.py）
+            "()": "config.log_redaction.RedactingFormatter",
             "format": "{levelname} {asctime} {module} {message}",
             "style": "{",
         },
@@ -177,5 +179,9 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
+        # httpx / httpcore は INFO でリクエスト URL を丸ごと出す。Backlog はキーを
+        # クエリに載せるので、そもそも出さない（伏せる処理は二重の守り）
+        "httpx": {"level": "WARNING"},
+        "httpcore": {"level": "WARNING"},
     },
 }
