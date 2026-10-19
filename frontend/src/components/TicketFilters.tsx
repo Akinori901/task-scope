@@ -8,7 +8,7 @@ import {
   Select,
   TextField,
 } from "@mui/material";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { TicketQueryParams } from "../api/client";
 import type { BacklogUser, Project, TicketTag } from "../api/types";
 
@@ -43,9 +43,12 @@ export default function TicketFilters({
   const composingRef = useRef(false);
 
   // 外部からフィルターがリセットされた場合にローカルステートも同期
-  useEffect(() => {
+  // （effect で同期すると一度古い値で描画されるため、描画中に前回値と比べて直す）
+  const [prevSearch, setPrevSearch] = useState(filters.search);
+  if (filters.search !== prevSearch) {
+    setPrevSearch(filters.search);
     setSearchText(filters.search ?? "");
-  }, [filters.search]);
+  }
 
   return (
     <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 2 }}>

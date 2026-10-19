@@ -18,6 +18,7 @@ import {
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import type { Ticket } from "../api/types";
+import { useMountedAt } from "../hooks/useMountedAt";
 
 // 一覧に出す成果物アイコン。並びは作業順（チケット詳細のボタンと揃える）。
 // 「報告書」ひとまとめだった表示を成果物ごとに分けている。
@@ -42,6 +43,7 @@ interface Props {
 }
 
 export default function DelayAlertList({ tickets }: Props) {
+  const mountedAt = useMountedAt();
   const navigate = useNavigate();
 
   return (
@@ -101,7 +103,7 @@ export default function DelayAlertList({ tickets }: Props) {
                     );
                   })}
                   {ticket.status_changed_at &&
-                    Date.now() - new Date(ticket.status_changed_at).getTime() < 86400000 && (
+                    mountedAt - new Date(ticket.status_changed_at).getTime() < 86400000 && (
                     <Tooltip title={`${ticket.previous_status_name ?? "?"} → ${ticket.status_name}`}>
                       <Chip label="更新" size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                     </Tooltip>

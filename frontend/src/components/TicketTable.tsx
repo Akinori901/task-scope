@@ -27,6 +27,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { TICKETS_PAGE_SIZE, type TicketQueryParams } from "../api/client";
 import type { PaginatedResponse, Ticket } from "../api/types";
+import { useMountedAt } from "../hooks/useMountedAt";
 import { useTickets } from "../hooks/useTickets";
 import { useTicketTags } from "../hooks/useTicketTags";
 import PriorityChip from "./PriorityChip";
@@ -109,6 +110,7 @@ function TicketRow({
   onToggle: () => void;
   tagColorMap?: Record<string, string>;
 }) {
+  const mountedAt = useMountedAt();
   const navigate = useNavigate();
   const hasChildren = ticket.child_count > 0;
 
@@ -162,7 +164,7 @@ function TicketRow({
       <TableCell>
         <StatusChip status={ticket.status_name} />
         {ticket.status_changed_at &&
-          Date.now() - new Date(ticket.status_changed_at).getTime() < 86400000 && (
+          mountedAt - new Date(ticket.status_changed_at).getTime() < 86400000 && (
           <Tooltip title={`${ticket.previous_status_name ?? "?"} → ${ticket.status_name}`}>
             <Chip label="更新" size="small" color="info" variant="outlined" sx={{ ml: 0.5, height: 20, fontSize: 11 }} />
           </Tooltip>
