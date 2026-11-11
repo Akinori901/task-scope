@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.services.sync_service import SyncService
+from apps.core.views._shared import _body
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -24,7 +25,7 @@ class SyncTriggerView(APIView):
     """同期トリガー API（全スペース or 指定スペース）"""
 
     def post(self, request: Request) -> Response:
-        space_id = request.data.get("space_id")
+        space_id = _body(request).get("space_id")
         try:
             close_old_connections()
             service = SyncService()
