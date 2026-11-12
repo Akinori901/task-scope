@@ -19,6 +19,7 @@ from apps.core.models import (
 from apps.core.serializers import (
     CommentSerializer,
 )
+from apps.core.views._shared import _body
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -31,7 +32,7 @@ class CommentCreateView(APIView):
     """手動コメント作成 API"""
 
     def post(self, request: Request, pk: int) -> Response:
-        content = request.data.get("content", "")
+        content = _body(request).get("content", "")
         if not content:
             return Response({"error": "content is required"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -40,7 +41,7 @@ class CommentCreateView(APIView):
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        tags = request.data.get("tags", [])
+        tags = _body(request).get("tags", [])
 
         # 手動コメントにはユニークな backlog_id を割り当て（ユニーク制約回避）
         import time
@@ -68,7 +69,7 @@ class CommentUpdateTagsView(APIView):
         except Comment.DoesNotExist:
             return Response({"error": "Comment not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        tags = request.data.get("tags")
+        tags = _body(request).get("tags")
         if tags is None:
             return Response({"error": "tags is required"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -92,10 +93,10 @@ class CommentUpdateView(APIView):
         if comment.posted_at is not None:
             return Response({"error": "投稿済みコメントは編集できません"}, status=status.HTTP_400_BAD_REQUEST)
 
-        content = request.data.get("content")
+        content = _body(request).get("content")
         if content is not None:
             comment.content = content
-        tags = request.data.get("tags")
+        tags = _body(request).get("tags")
         if tags is not None:
             comment.tags = tags
 
@@ -224,7 +225,7 @@ class BulkPostCommentsView(APIView):
     """未投稿の spec コメントを一括で Backlog に投稿"""
 
     def post(self, request: Request) -> Response:
-        comment_ids = request.data.get("comment_ids", [])
+        comment_ids = _body(request).get("comment_ids", [])
         if not comment_ids:
             return Response({"error": "comment_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
 

@@ -11,6 +11,8 @@ from rest_framework.exceptions import ValidationError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from rest_framework.request import Request
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,18 @@ _bg_tasks: dict[str, dict[str, Any]] = {}
 
 
 _bg_tasks_lock = threading.Lock()
+
+
+def _body(request: Request) -> dict[str, Any]:
+    """リクエスト本文を dict で取り出す。
+
+    request.data は JSON の配列も受け付けるため、そのまま .get すると 500 になる。
+    オブジェクト以外は 400 で返す（フォーム送信の QueryDict は dict のサブクラスなので通る）。
+    """
+    data = request.data
+    if not isinstance(data, dict):
+        raise ValidationError({"detail": "リクエスト本文は JSON オブジェクトで送ってください"})
+    return data
 
 
 def _int_param(params: Mapping[str, str], name: str) -> int | None:

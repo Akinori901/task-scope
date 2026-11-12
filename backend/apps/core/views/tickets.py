@@ -26,6 +26,7 @@ from apps.core.serializers import (
     TicketSerializer,
     TicketTagSerializer,
 )
+from apps.core.views._shared import _body
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -217,8 +218,8 @@ class PinnedTicketListCreateView(APIView):
         return Response(data)
 
     def post(self, request: Request) -> Response:
-        ticket_id = request.data.get("ticket_id")
-        note = request.data.get("note", "")
+        ticket_id = _body(request).get("ticket_id")
+        note = _body(request).get("note", "")
         if not ticket_id:
             return Response({"error": "ticket_id is required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -275,7 +276,7 @@ class TicketUpdateCustomTagsView(APIView):
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        tags = request.data.get("custom_tags")
+        tags = _body(request).get("custom_tags")
         if tags is None:
             return Response({"error": "custom_tags is required"}, status=status.HTTP_400_BAD_REQUEST)
         if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):

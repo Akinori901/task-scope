@@ -3,6 +3,7 @@
 - ID の絞り込みに使うクエリパラメータが数字でなければ 400（以前は ORM まで渡って 500）
 - 一括投稿は Backlog のチケットだけが対象。Jira のチケットが混ざっても全体を落とさない
 - 連携先（Backlog / Jira）の無いプロジェクトへの投稿は 400 で理由を返す
+- リクエスト本文が JSON オブジェクトでなければ 400（以前は .get で 500）
 """
 
 from __future__ import annotations
@@ -103,3 +104,12 @@ class TestPostWithoutSpace:
         assert "連携先" in resp.json()["error"]
         comment.refresh_from_db()
         assert comment.posted_at is None
+
+
+@pytest.mark.django_db
+class TestJsonBodyShape:
+    @pytest.mark.parametrize("path", ["/api/comments/bulk-post/", "/api/sync/"])
+    def test_配列の本文は400(self, client: APIClient, path: str) -> None:
+        resp = client.post(path, [1, 2], format="json")
+
+        assert resp.status_code == 400
